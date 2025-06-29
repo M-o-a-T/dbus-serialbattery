@@ -3,59 +3,40 @@
 # remove comment for easier troubleshooting
 #set -x
 
-# import functions
-source /data/apps/dbus-serialbattery/functions.sh
+if [ $# == 0 ] ; then
+    DEST=/data
+else
+    DEST="$1"
+fi
 
+# import functions
+source ${DATA}/apps/dbus-serialbattery/functions.sh
 
 # count changed files
 filesChanged=0
 
-
-# Mount overlay-fs
 # Check if path for GUIv1 exists
+overlayGuiV1StatusCode=0
 if [ -d "/opt/victronenergy/gui" ]; then
     pathGuiV1="/opt/victronenergy/gui"
 elif [ -d "/opt/victronenergy/gui-v1" ]; then
     pathGuiV1="/opt/victronenergy/gui-v1"
-fi
-if [ "$pathGuiV1" ]; then
-    checkOverlay dbus-serialbattery_gui "$pathGuiV1"
-    if [ $? -eq 0 ]; then
-        overlayGuiV1StatusCode=0
-    else
-        overlayGuiV1StatusCode=1
-    fi
 else
-    overlayGuiV1StatusCode=2
+    overlayGuiV1StatusCode=1
 fi
 
 # Check if path for GUIv2 exists
+overlayGuiV2StatusCode=0
 if [ -d "/opt/victronenergy/gui-v2" ]; then
     pathGuiV2="/opt/victronenergy/gui-v2"
-fi
-if [ "$pathGuiV2" ]; then
-    checkOverlay dbus-serialbattery_gui "$pathGuiV2"
-    if [ $? -eq 0 ]; then
-        overlayGuiV2StatusCode=0
-    else
-        overlayGuiV2StatusCode=1
-    fi
 else
-    overlayGuiV2StatusCode=2
+    overlayGuiV2StatusCode=1
 fi
 
-
-checkOverlay dbus-serialbattery_gui /var/www/venus
-if [ $? -eq 0 ]; then
-    overlayWwwStatusCode=0
-else
-    overlayWwwStatusCode=1
-fi
-
+overlayWwwStatusCode=0
 
 # GUI V1
-if [ -d "$pathGuiV1" ]; then
-
+if true ; then # [ -d "$pathGuiV1" ]
     if [ $overlayGuiV1StatusCode -eq 1 ]; then
         echo "ERROR: Could not mount overlay for $pathGuiV1"
         echo "QML files were not installed."
@@ -74,42 +55,42 @@ if [ -d "$pathGuiV1" ]; then
 
 
         # copy new PageBattery.qml if changed
-        if ! cmp -s "/data/apps/dbus-serialbattery/qml/gui-v1/PageBattery.qml" "$pathGuiV1/qml/PageBattery.qml"
+        if ! cmp -s "${DATA}/apps/dbus-serialbattery/qml/gui-v1/PageBattery.qml" "$pathGuiV1/qml/PageBattery.qml"
         then
             echo "Copying PageBattery.qml..."
-            cp "/data/apps/dbus-serialbattery/qml/gui-v1/PageBattery.qml" "$pathGuiV1/qml/"
+            cp "${DATA}/apps/dbus-serialbattery/qml/gui-v1/PageBattery.qml" "$pathGuiV1/qml/"
             ((filesChanged++))
         fi
 
         # copy new PageBatteryCellVoltages if changed
-        if ! cmp -s "/data/apps/dbus-serialbattery/qml/gui-v1/PageBatteryCellVoltages.qml" "$pathGuiV1/qml/PageBatteryCellVoltages.qml"
+        if ! cmp -s "${DATA}/apps/dbus-serialbattery/qml/gui-v1/PageBatteryCellVoltages.qml" "$pathGuiV1/qml/PageBatteryCellVoltages.qml"
         then
             echo "Copying PageBatteryCellVoltages.qml..."
-            cp "/data/apps/dbus-serialbattery/qml/gui-v1/PageBatteryCellVoltages.qml" "$pathGuiV1/qml/"
+            cp "${DATA}/apps/dbus-serialbattery/qml/gui-v1/PageBatteryCellVoltages.qml" "$pathGuiV1/qml/"
             ((filesChanged++))
         fi
 
         # copy new PageBatteryParameters.qml if changed
-        if ! cmp -s "/data/apps/dbus-serialbattery/qml/gui-v1/PageBatteryParameters.qml" "$pathGuiV1/qml/PageBatteryParameters.qml"
+        if ! cmp -s "${DATA}/apps/dbus-serialbattery/qml/gui-v1/PageBatteryParameters.qml" "$pathGuiV1/qml/PageBatteryParameters.qml"
         then
             echo "Copying PageBatteryParameters.qml..."
-            cp "/data/apps/dbus-serialbattery/qml/gui-v1/PageBatteryParameters.qml" "$pathGuiV1/qml/"
+            cp "${DATA}/apps/dbus-serialbattery/qml/gui-v1/PageBatteryParameters.qml" "$pathGuiV1/qml/"
             ((filesChanged++))
         fi
 
         # copy new PageBatterySettings.qml if changed
-        if ! cmp -s "/data/apps/dbus-serialbattery/qml/gui-v1/PageBatterySettings.qml" "$pathGuiV1/qml/PageBatterySettings.qml"
+        if ! cmp -s "${DATA}/apps/dbus-serialbattery/qml/gui-v1/PageBatterySettings.qml" "$pathGuiV1/qml/PageBatterySettings.qml"
         then
             echo "Copying PageBatterySettings.qml..."
-            cp "/data/apps/dbus-serialbattery/qml/gui-v1/PageBatterySettings.qml" "$pathGuiV1/qml/"
+            cp "${DATA}/apps/dbus-serialbattery/qml/gui-v1/PageBatterySettings.qml" "$pathGuiV1/qml/"
             ((filesChanged++))
         fi
 
         # copy new PageLynxIonIo.qml if changed
-        if ! cmp -s "/data/apps/dbus-serialbattery/qml/gui-v1/PageLynxIonIo.qml" "$pathGuiV1/qml/PageLynxIonIo.qml"
+        if ! cmp -s "${DATA}/apps/dbus-serialbattery/qml/gui-v1/PageLynxIonIo.qml" "$pathGuiV1/qml/PageLynxIonIo.qml"
         then
             echo "Copying PageLynxIonIo.qml..."
-            cp "/data/apps/dbus-serialbattery/qml/gui-v1/PageLynxIonIo.qml" "$pathGuiV1/qml/"
+            cp "${DATA}/apps/dbus-serialbattery/qml/gui-v1/PageLynxIonIo.qml" "$pathGuiV1/qml/"
             ((filesChanged++))
         fi
 
@@ -158,7 +139,7 @@ fi
 
 
 # GUI V2
-if [ -d "$pathGuiV2" ]; then
+if true ; then # [ -d "$pathGuiV2" ]
 
     if [ $overlayGuiV2StatusCode -eq 1 ]; then
         echo "ERROR: Could not mount overlay for /opt/victronenergy/gui-v2"
@@ -204,67 +185,67 @@ if [ -d "$pathGuiV2" ]; then
         else
 
             # copy new PageBattery.qml if changed
-            if ! cmp -s "/data/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBattery.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/PageBattery.qml"
+            if ! cmp -s "${DATA}/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBattery.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/PageBattery.qml"
             then
                 echo "Copying PageBattery.qml..."
-                cp "/data/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBattery.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/"
+                cp "${DATA}/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBattery.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/"
                 ((filesChanged++))
             fi
 
             # copy new PageBatteryDbusSerialbattery if changed
-            if ! cmp -s "/data/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbattery.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryDbusSerialbattery.qml"
+            if ! cmp -s "${DATA}/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbattery.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryDbusSerialbattery.qml"
             then
                 echo "Copying PageBatteryDbusSerialbattery.qml..."
-                cp "/data/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbattery.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/"
+                cp "${DATA}/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbattery.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/"
                 ((filesChanged++))
             fi
 
             # copy new PageBatteryDbusSerialbatteryCellVoltages if changed
-            if ! cmp -s "/data/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbatteryCellVoltages.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryDbusSerialbatteryCellVoltages.qml"
+            if ! cmp -s "${DATA}/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbatteryCellVoltages.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryDbusSerialbatteryCellVoltages.qml"
             then
                 echo "Copying PageBatteryDbusSerialbatteryCellVoltages.qml..."
-                cp "/data/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbatteryCellVoltages.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/"
+                cp "${DATA}/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbatteryCellVoltages.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/"
                 ((filesChanged++))
             fi
 
             # copy new PageBatteryDbusSerialbatterySettings if changed
-            if ! cmp -s "/data/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbatterySettings.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryDbusSerialbatterySettings.qml"
+            if ! cmp -s "${DATA}/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbatterySettings.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryDbusSerialbatterySettings.qml"
             then
                 echo "Copying PageBatteryDbusSerialbatterySettings.qml..."
-                cp "/data/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbatterySettings.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/"
+                cp "${DATA}/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbatterySettings.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/"
                 ((filesChanged++))
             fi
 
             # copy new PageBatteryDbusSerialbatteryTimeToSoc if changed
-            if ! cmp -s "/data/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbatteryTimeToSoc.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryDbusSerialbatteryTimeToSoc.qml"
+            if ! cmp -s "${DATA}/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbatteryTimeToSoc.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryDbusSerialbatteryTimeToSoc.qml"
             then
                 echo "Copying PageBatteryDbusSerialbatteryTimeToSoc.qml..."
-                cp "/data/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbatteryTimeToSoc.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/"
+                cp "${DATA}/apps/dbus-serialbattery/qml/gui-v2/${sourceQmlDir}/PageBatteryDbusSerialbatteryTimeToSoc.qml" "/opt/victronenergy/gui-v2/Victron/VenusOS/pages/settings/devicelist/battery/"
                 ((filesChanged++))
             fi
 
             # delete old PageBatteryCellVoltages if present
-            if [ -f "/data/apps/overlay-fs/data/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryCellVoltages.qml" ]; then
+            if [ -f "${DATA}/apps/overlay-fs${DATA}/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryCellVoltages.qml" ]; then
                 echo "Deleting old PageBatteryCellVoltages.qml..."
-                rm -f "/data/apps/overlay-fs/data/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryCellVoltages.qml"
+                rm -f "${DATA}/apps/overlay-fs${DATA}/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryCellVoltages.qml"
             fi
 
             # delete old PageBatteryParameters.qml if present
-            if [ -f "/data/apps/overlay-fs/data/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryParameters.qml" ]; then
+            if [ -f "${DATA}/apps/overlay-fs${DATA}/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryParameters.qml" ]; then
                 echo "Deleting old PageBatteryParameters.qml..."
-                rm -f "/data/apps/overlay-fs/data/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryParameters.qml"
+                rm -f "${DATA}/apps/overlay-fs${DATA}/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageBatteryParameters.qml"
             fi
 
             # delete old PageBatterySettings.qml if present
-            if [ -f "/data/apps/overlay-fs/data/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageBatterySettings.qml" ]; then
+            if [ -f "${DATA}/apps/overlay-fs${DATA}/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageBatterySettings.qml" ]; then
                 echo "Deleting old PageBatterySettings.qml..."
-                rm -f "/data/apps/overlay-fs/data/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageBatterySettings.qml"
+                rm -f "${DATA}/apps/overlay-fs${DATA}/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageBatterySettings.qml"
             fi
 
             # delete old PageLynxIonIo.qml if present
-            if [ -f "/data/apps/overlay-fs/data/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageLynxIonIo.qml" ]; then
+            if [ -f "${DATA}/apps/overlay-fs${DATA}/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageLynxIonIo.qml" ]; then
                 echo "Deleting old PageLynxIonIo.qml..."
-                rm -f "/data/apps/overlay-fs/data/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageLynxIonIo.qml"
+                rm -f "${DATA}/apps/overlay-fs${DATA}/gui-v2/upper/Victron/VenusOS/pages/settings/devicelist/battery/PageLynxIonIo.qml"
             fi
 
 
@@ -319,17 +300,17 @@ if [[ "$hash_online" == *"venus-gui-v2.wasm"* ]]; then
 
         # Download new version
         echo "New version of GUIv2 web version available. Downloading..."
-        if [ ! -d "/data/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2" ]; then
-            mkdir -p "/data/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2"
+        if [ ! -d "${DATA}/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2" ]; then
+            mkdir -p "${DATA}/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2"
         fi
 
-        wget -q -O "/data/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2/venus-webassembly.zip" "https://raw.githubusercontent.com/mr-manuel/venus-os_dbus-serialbattery_gui-v2/refs/heads/master/venus-webassembly.zip"
+        wget -q -O "${DATA}/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2/venus-webassembly.zip" "https://raw.githubusercontent.com/mr-manuel/venus-os_dbus-serialbattery_gui-v2/refs/heads/master/venus-webassembly.zip"
 
         # check if download was successful
         if [ $? -ne 0 ]; then
             echo "ERROR: Download of GUIv2 web version failed."
         else
-            wget -q -O "/data/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2/venus-gui-v2.wasm.sha256" "https://raw.githubusercontent.com/mr-manuel/venus-os_dbus-serialbattery_gui-v2/refs/heads/master/venus-gui-v2.wasm.sha256"
+            wget -q -O "${DATA}/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2/venus-gui-v2.wasm.sha256" "https://raw.githubusercontent.com/mr-manuel/venus-os_dbus-serialbattery_gui-v2/refs/heads/master/venus-gui-v2.wasm.sha256"
 
             # check if download was successful
             if [ $? -ne 0 ]; then
@@ -349,8 +330,8 @@ fi
 
 # Check if offline version is already installed
 echo ""
-if [ -f "/data/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2/venus-gui-v2.wasm.sha256" ]; then
-    hash_available=$(cat "/data/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2/venus-gui-v2.wasm.sha256")
+if [ -f "${DATA}/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2/venus-gui-v2.wasm.sha256" ]; then
+    hash_available=$(cat "${DATA}/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2/venus-gui-v2.wasm.sha256")
 else
     hash_available="no hash available"
 fi
@@ -364,11 +345,11 @@ if [ "$hash_installed" != "$hash_available" ]; then
         echo "Installing GUIv2 web version..."
 
         # Check if file is available
-        if [ ! -f "/data/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2/venus-webassembly.zip" ]; then
+        if [ ! -f "${DATA}/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2/venus-webassembly.zip" ]; then
             echo "ERROR: GUIv2 web version not found."
         else
 
-            unzip -o /data/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2/venus-webassembly.zip -d /tmp > /dev/null
+            unzip -o ${DATA}/apps/dbus-serialbattery/ext/venus-os_dbus-serialbattery_gui-v2/venus-webassembly.zip -d /tmp > /dev/null
 
             # remove unneeded files
             if [ -f "/tmp/wasm/Makefile" ]; then
@@ -409,7 +390,7 @@ fi
 
 # TEMPORARY FIX until v3.70
 echo "Applying temporary fix for GUIv2 to enable Remote Console Color Mode..."
-dbus -y com.victronenergy.settings /Settings AddSetting Gui RemoteConsoleColorMode 1 i 0 1 > /dev/null
+dbus com.victronenergy.settings /Settings AddSetting Gui RemoteConsoleColorMode 1 i 0 1 > /dev/null
 
 
 # if files changed, restart gui
@@ -424,13 +405,7 @@ if [ $filesChanged -gt 0 ]; then
         servicePath="/service/start-gui"
     fi
 
-    # stop gui
-    svc -d $servicePath
-    # sleep 1 sec
-    sleep 1
-    # start gui
-    svc -u $servicePath
-    echo "New QML files were installed and the GUI was restarted."
+    echo "New QML files were installed. Restart the GUI."
 fi
 
 echo

@@ -6,6 +6,11 @@
 # this file has also to work for older driver versions
 # else it won't work to install an older version
 
+if [ $# == 0 ] ; then
+    DEST=/data
+else
+    DEST="$1"
+fi
 
 # check if /data/apps path exists
 if [ ! -d "/data/apps" ]; then
@@ -30,9 +35,9 @@ fi
 function backup_config {
     # backup config.ini
     # driver >= v2.0.0
-    if [ -f "/data/apps/dbus-serialbattery/config.ini" ]; then
-        mv /data/apps/dbus-serialbattery/config.ini /data/apps/dbus-serialbattery_config.ini.backup
-        echo "Config.ini backed up to /data/apps/dbus-serialbattery_config.ini.backup"
+    if [ -f "${DEST}/apps/dbus-serialbattery/config.ini" ]; then
+        mv ${DEST}/apps/dbus-serialbattery/config.ini ${DEST}/apps/dbus-serialbattery_config.ini.backup
+        echo "Config.ini backed up to ${DEST}/apps/dbus-serialbattery_config.ini.backup"
     # driver < v2.0.0
     elif [ -f "/data/etc/dbus-serialbattery/config.ini" ]; then
         mv /data/etc/dbus-serialbattery/config.ini /data/etc/dbus-serialbattery_config.ini.backup
@@ -43,22 +48,22 @@ function backup_config {
 function restore_config {
     # restore config.ini
     # installation of driver >= v2.0.0
-    if [ -f "/data/apps/dbus-serialbattery_config.ini.backup" ]; then
+    if [ -f "${DEST}/apps/dbus-serialbattery_config.ini.backup" ]; then
         # restore to driver >= v2.0.0 (normal update)
-        if [ -d "/data/apps/dbus-serialbattery" ]; then
-            mv /data/apps/dbus-serialbattery_config.ini.backup /data/apps/dbus-serialbattery/config.ini
-            echo "Config.ini restored to /data/apps/dbus-serialbattery/config.ini"
+        if [ -d "${DEST}/apps/dbus-serialbattery" ]; then
+            mv ${DEST}/apps/dbus-serialbattery_config.ini.backup ${DEST}/apps/dbus-serialbattery/config.ini
+            echo "Config.ini restored to ${DEST}/apps/dbus-serialbattery/config.ini"
         # restore to driver < v2.0.0 (downlgrade)
         elif [ -d "/data/etc/dbus-serialbattery" ]; then
-            mv /data/apps/dbus-serialbattery_config.ini.backup /data/etc/dbus-serialbattery/config.ini
+            mv ${DEST}/apps/dbus-serialbattery_config.ini.backup /data/etc/dbus-serialbattery/config.ini
             echo "Config.ini restored to /data/etc/dbus-serialbattery/config.ini"
         fi
     # installation of driver < v2.0.0
     elif [ -f "/data/etc/dbus-serialbattery_config.ini.backup" ]; then
         # restore to driver >= v2.0.0 (upgrade)
-        if [ -d "/data/apps/dbus-serialbattery" ]; then
-            mv /data/etc/dbus-serialbattery_config.ini.backup /data/apps/dbus-serialbattery/config.ini
-            echo "Config.ini restored to /data/apps/dbus-serialbattery/config.ini"
+        if [ -d "${DEST}/apps/dbus-serialbattery" ]; then
+            mv /data/etc/dbus-serialbattery_config.ini.backup ${DEST}/apps/dbus-serialbattery/config.ini
+            echo "Config.ini restored to ${DEST}/apps/dbus-serialbattery/config.ini"
         # restore to driver < v2.0.0 (normal update)
         elif [ -d "/data/etc/dbus-serialbattery" ]; then
             mv /data/etc/dbus-serialbattery_config.ini.backup /data/etc/dbus-serialbattery/config.ini
@@ -97,8 +102,8 @@ if [ -z "$1" ]; then
 
     # show current installed version
     # driver >= v2.0.0
-    if [ -f "/data/apps/dbus-serialbattery/utils.py" ]; then
-        current_version=$(grep DRIVER_VERSION /data/apps/dbus-serialbattery/utils.py | awk -F'"' '{print $2}')
+    if [ -f "${DEST}/apps/dbus-serialbattery/utils.py" ]; then
+        current_version=$(grep DRIVER_VERSION ${DEST}/apps/dbus-serialbattery/utils.py | awk -F'"' '{print $2}')
         echo
         echo "** Currently installed version: v$current_version **"
     # driver < v2.0.0
@@ -271,8 +276,8 @@ if [ "$version" = "stable" ] || [ "$version" = "beta" ] || [ "$version" = "speci
 
     # remove old driver
     # driver >= v2.0.0
-    if [ -d "/data/apps/dbus-serialbattery" ]; then
-        rm -rf /data/apps/dbus-serialbattery
+    if [ -d "${DEST}/apps/dbus-serialbattery" ]; then
+        rm -rf ${DEST}/apps/dbus-serialbattery
     fi
     # driver < v2.0.0
     if [ -d "/data/etc/dbus-serialbattery" ]; then
@@ -282,7 +287,7 @@ if [ "$version" = "stable" ] || [ "$version" = "beta" ] || [ "$version" = "speci
     # move driver to the correct location
     # driver >= v2.0.0
     if [ -d "/tmp/dbus-serialbattery" ]; then
-        mv /tmp/dbus-serialbattery /data/apps/dbus-serialbattery
+        mv /tmp/dbus-serialbattery ${DEST}/apps/dbus-serialbattery
     # driver < v2.0.0
     elif [ -d "/tmp/etc/dbus-serialbattery" ]; then
         mv /tmp/etc/dbus-serialbattery /data/etc/dbus-serialbattery
@@ -367,8 +372,8 @@ if [ "$version" = "nightly" ] || [ "$version" = "specific_branch" ]; then
 
     # remove old driver
     # driver >= v2.0.0
-    if [ -d "/data/apps/dbus-serialbattery" ]; then
-        rm -rf /data/apps/dbus-serialbattery
+    if [ -d "${DEST}/apps/dbus-serialbattery" ]; then
+        rm -rf ${DEST}/apps/dbus-serialbattery
     fi
     # driver < v2.0.0
     if [ -d "/data/etc/dbus-serialbattery" ]; then
@@ -395,13 +400,13 @@ fi
 
 
 # fix permissions, owner and group
-if [ -d "/data/apps/dbus-serialbattery" ]; then
-    chmod +x /data/apps/dbus-serialbattery/*.sh
-    chmod +x /data/apps/dbus-serialbattery/*.py
-    chmod +x /data/apps/dbus-serialbattery/service/run
-    chmod +x /data/apps/dbus-serialbattery/service/log/run
+if [ -d "${DEST}/apps/dbus-serialbattery" ]; then
+    chmod +x ${DEST}/apps/dbus-serialbattery/*.sh
+    chmod +x ${DEST}/apps/dbus-serialbattery/*.py
+    chmod +x ${DEST}/apps/dbus-serialbattery/service/run
+    chmod +x ${DEST}/apps/dbus-serialbattery/service/log/run
 
-    chown -R root:root /data/apps/dbus-serialbattery
+    chown -R root:root ${DEST}/apps/dbus-serialbattery
 elif [ -d "/data/etc/dbus-serialbattery" ]; then
     chmod +x /data/etc/dbus-serialbattery/*.sh
     chmod +x /data/etc/dbus-serialbattery/*.py
@@ -418,13 +423,13 @@ restore_config
 
 
 # check if installed version is >= v2.0.0
-if [ -d "/data/apps/dbus-serialbattery" ]; then
+if [ -d "${DEST}/apps/dbus-serialbattery" ]; then
     # install overlay-fs if not already installed
-    if [ ! -d "/data/apps/overlay-fs" ]; then
-        if [ -d "/data/apps/dbus-serialbattery/ext/venus-os_overlay-fs" ]; then
+    if [ ! -d "${DEST}/apps/overlay-fs" ]; then
+        if [ -d "${DEST}/apps/dbus-serialbattery/ext/venus-os_overlay-fs" ]; then
             echo
             echo "Install overlay-fs app..."
-            bash /data/apps/dbus-serialbattery/ext/venus-os_overlay-fs/install.sh --copy
+            bash ${DEST}/apps/dbus-serialbattery/ext/venus-os_overlay-fs/install.sh --copy
         else
             echo "ERROR: overlay-fs app not found. Please install it manually."
         fi
@@ -436,8 +441,8 @@ fi
 
 
 # run install script >= v2.0.0
-if [ -f "/data/apps/dbus-serialbattery/enable.sh" ]; then
-    bash /data/apps/dbus-serialbattery/enable.sh
+if [ -f "${DEST}/apps/dbus-serialbattery/enable.sh" ]; then
+    bash ${DEST}/apps/dbus-serialbattery/enable.sh
 # run install script >= v1.0.0 and < v2.0.0
 elif [ -f "/data/etc/dbus-serialbattery/reinstall-local.sh" ]; then
     bash /data/etc/dbus-serialbattery/reinstall-local.sh
