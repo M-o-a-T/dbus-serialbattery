@@ -301,66 +301,81 @@ class Daly(Battery):
 
         if al_temp & 2:
             # High charge temp - Alarm
-            self.protection.high_charge_temperature = 2
+            high_charge_temperature = 2
         elif al_temp & 1:
             # High charge temp - Pre-alarm
-            self.protection.high_charge_temperature = 1
+            high_charge_temperature = 1
         else:
-            self.protection.high_charge_temperature = 0
+            high_charge_temperature = 0
 
         if al_temp & 8:
             # Low charge temp - Alarm
-            self.protection.low_charge_temperature = 2
+            low_charge_temperature = 2
         elif al_temp & 4:
             # Low charge temp - Pre-alarm
-            self.protection.low_charge_temperature = 1
+            low_charge_temperature = 1
         else:
-            self.protection.low_charge_temperature = 0
+            low_charge_temperature = 0
 
         if al_temp & 32:
             # High discharge temp - Alarm
-            self.protection.high_temperature = 2
+            high_discharge_temperature = 2
         elif al_temp & 16:
             # High discharge temp - Pre-alarm
-            self.protection.high_temperature = 1
+            high_discharge_temperature = 1
         else:
-            self.protection.high_temperature = 0
+            high_discharge_temperature = 0
 
         if al_temp & 128:
             # Low discharge temp - Alarm
-            self.protection.low_temperature = 2
+            low_discharge_temperature = 2
         elif al_temp & 64:
             # Low discharge temp - Pre-alarm
-            self.protection.low_temperature = 1
+            low_discharge_temperature = 1
         else:
-            self.protection.low_temperature = 0
+            low_discharge_temperature = 0
 
-        # if al_crnt_soc & 2:
-        #    # High charge current - Alarm
-        #    self.protection.high_charge_current = 2
-        # elif al_crnt_soc & 1:
-        #    # High charge current - Pre-alarm
-        #    self.protection.high_charge_current = 1
-        # else:
-        #    self.protection.high_charge_current = 0
-
-        # if al_crnt_soc & 8:
-        #    # High discharge current - Alarm
-        #    self.protection.high_charge_current = 2
-        # elif al_crnt_soc & 4:
-        #    # High discharge current - Pre-alarm
-        #    self.protection.high_charge_current = 1
-        # else:
-        #    self.protection.high_charge_current = 0
-
-        if al_crnt_soc & 2 or al_crnt_soc & 8:
-            # High charge/discharge current - Alarm
-            self.protection.high_charge_current = 2
-        elif al_crnt_soc & 1 or al_crnt_soc & 4:
-            # High charge/discharge current - Pre-alarm
-            self.protection.high_charge_current = 1
+        if al_crnt_soc & 2:
+            # High charge current - Alarm
+            high_charge_current = 2
+        elif al_crnt_soc & 1:
+            # High charge current - Pre-alarm
+            high_charge_current = 1
         else:
-            self.protection.high_charge_current = 0
+            high_charge_current = 0
+
+        if al_crnt_soc & 8:
+            # High discharge current - Alarm
+            high_discharge_current = 2
+        elif al_crnt_soc & 4:
+            # High discharge current - Pre-alarm
+            high_discharge_current = 1
+        else:
+            high_discharge_current = 0
+
+        # if al_crnt_soc & 2 or al_crnt_soc & 8:
+        #     # High charge/discharge current - Alarm
+        #     high_charge_current = 2
+        # elif al_crnt_soc & 1 or al_crnt_soc & 4:
+        #     # High charge/discharge current - Pre-alarm
+        #     high_charge_current = 1
+        # else:
+        #     high_charge_current = 0
+
+        if INVERT_CURRENT_MEASUREMENT > 0:
+            self.protection.high_charge_temperature = high_charge_temperature
+            self.protection.low_charge_temperature = low_charge_temperature
+            self.protection.high_temperature = high_discharge_temperature
+            self.protection.low_temperature = low_discharge_temperature
+            self.protection.high_charge_current = high_charge_current
+            self.protection.high_discharge_current = high_discharge_current
+        else:
+            self.protection.high_charge_temperature = high_discharge_temperature
+            self.protection.low_charge_temperature = low_discharge_temperature
+            self.protection.high_temperature = high_charge_temperature
+            self.protection.low_temperature = low_charge_temperature
+            self.protection.high_charge_current = high_discharge_current
+            self.protection.high_discharge_current = high_charge_current
 
         if not SOC_CALCULATION:
             if al_crnt_soc & 128:
