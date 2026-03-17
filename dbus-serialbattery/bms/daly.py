@@ -10,6 +10,7 @@ from utils import (
     open_serial_port,
     logger,
     AUTO_RESET_SOC,
+    SOC_CALCULATION,
     BATTERY_CAPACITY,
     INVERT_CURRENT_MEASUREMENT,
     MIN_CELL_VOLTAGE,
@@ -34,7 +35,7 @@ class Daly(Battery):
         self.poll_interval = 1000
         self.type = self.BATTERYTYPE
         self.has_settings = True
-        self.reset_soc = 0
+        self.soc_reset_to = 0
         self.soc_to_set = None
         self.runtime = 0  # TROUBLESHOOTING for no reply errors
         self.trigger_force_disable_discharge = None
@@ -42,9 +43,10 @@ class Daly(Battery):
         self.cells_volts_data_lastreadbad = False
         self.last_charge_mode = self.charge_mode
         # list of available callbacks, in order to display the buttons in the GUI
-        self.available_callbacks = [
-            "force_charging_off_callback",
-            "force_discharging_off_callback",
+        self.callbacks_available = [
+            "callback_charging_force_off",
+            "callback_discharging_force_off",
+            "callback_soc_reset_to",
         ]
         self.history.exclude_values_to_calculate = ["charge_cycles"]
 
@@ -120,7 +122,7 @@ class Daly(Battery):
         try:
             with open_serial_port(self.port, self.baud_rate) as ser:
                 result = self.read_soc_data(ser)
-                self.reset_soc = self.soc if self.soc else 0
+                self.soc_reset_to = self.soc if self.soc else 0
                 if self.runtime > 0.200:  # TROUBLESHOOTING for no reply errors
                     logger.debug("  |- refresh_data: read_soc_data - result: " + str(result) + " - runtime: " + str(f"{self.runtime:.1f}") + "s")
 
@@ -299,75 +301,91 @@ class Daly(Battery):
 
         if al_temp & 2:
             # High charge temp - Alarm
-            self.protection.high_charge_temperature = 2
+            high_charge_temperature = 2
         elif al_temp & 1:
             # High charge temp - Pre-alarm
-            self.protection.high_charge_temperature = 1
+            high_charge_temperature = 1
         else:
-            self.protection.high_charge_temperature = 0
+            high_charge_temperature = 0
 
         if al_temp & 8:
             # Low charge temp - Alarm
-            self.protection.low_charge_temperature = 2
+            low_charge_temperature = 2
         elif al_temp & 4:
             # Low charge temp - Pre-alarm
-            self.protection.low_charge_temperature = 1
+            low_charge_temperature = 1
         else:
-            self.protection.low_charge_temperature = 0
+            low_charge_temperature = 0
 
         if al_temp & 32:
             # High discharge temp - Alarm
-            self.protection.high_temperature = 2
+            high_discharge_temperature = 2
         elif al_temp & 16:
             # High discharge temp - Pre-alarm
-            self.protection.high_temperature = 1
+            high_discharge_temperature = 1
         else:
-            self.protection.high_temperature = 0
+            high_discharge_temperature = 0
 
         if al_temp & 128:
             # Low discharge temp - Alarm
-            self.protection.low_temperature = 2
+            low_discharge_temperature = 2
         elif al_temp & 64:
             # Low discharge temp - Pre-alarm
-            self.protection.low_temperature = 1
+            low_discharge_temperature = 1
         else:
-            self.protection.low_temperature = 0
+            low_discharge_temperature = 0
 
-        # if al_crnt_soc & 2:
-        #    # High charge current - Alarm
-        #    self.protection.high_charge_current = 2
-        # elif al_crnt_soc & 1:
-        #    # High charge current - Pre-alarm
-        #    self.protection.high_charge_current = 1
+        if al_crnt_soc & 2:
+            # High charge current - Alarm
+            high_charge_current = 2
+        elif al_crnt_soc & 1:
+            # High charge current - Pre-alarm
+            high_charge_current = 1
+        else:
+            high_charge_current = 0
+
+        if al_crnt_soc & 8:
+            # High discharge current - Alarm
+            high_discharge_current = 2
+        elif al_crnt_soc & 4:
+            # High discharge current - Pre-alarm
+            high_discharge_current = 1
+        else:
+            high_discharge_current = 0
+
+        # if al_crnt_soc & 2 or al_crnt_soc & 8:
+        #     # High charge/discharge current - Alarm
+        #     high_charge_current = 2
+        # elif al_crnt_soc & 1 or al_crnt_soc & 4:
+        #     # High charge/discharge current - Pre-alarm
+        #     high_charge_current = 1
         # else:
-        #    self.protection.high_charge_current = 0
+        #     high_charge_current = 0
 
-        # if al_crnt_soc & 8:
-        #    # High discharge current - Alarm
-        #    self.protection.high_charge_current = 2
-        # elif al_crnt_soc & 4:
-        #    # High discharge current - Pre-alarm
-        #    self.protection.high_charge_current = 1
-        # else:
-        #    self.protection.high_charge_current = 0
-
-        if al_crnt_soc & 2 or al_crnt_soc & 8:
-            # High charge/discharge current - Alarm
-            self.protection.high_charge_current = 2
-        elif al_crnt_soc & 1 or al_crnt_soc & 4:
-            # High charge/discharge current - Pre-alarm
-            self.protection.high_charge_current = 1
+        if INVERT_CURRENT_MEASUREMENT > 0:
+            self.protection.high_charge_temperature = high_charge_temperature
+            self.protection.low_charge_temperature = low_charge_temperature
+            self.protection.high_temperature = high_discharge_temperature
+            self.protection.low_temperature = low_discharge_temperature
+            self.protection.high_charge_current = high_charge_current
+            self.protection.high_discharge_current = high_discharge_current
         else:
-            self.protection.high_charge_current = 0
+            self.protection.high_charge_temperature = high_discharge_temperature
+            self.protection.low_charge_temperature = low_discharge_temperature
+            self.protection.high_temperature = high_charge_temperature
+            self.protection.low_temperature = low_charge_temperature
+            self.protection.high_charge_current = high_discharge_current
+            self.protection.high_discharge_current = high_charge_current
 
-        if al_crnt_soc & 128:
-            # Low SoC - Alarm
-            self.protection.low_soc = 2
-        elif al_crnt_soc & 64:
-            # Low SoC Warning level - Pre-alarm
-            self.protection.low_soc = 1
-        else:
-            self.protection.low_soc = 0
+        if not SOC_CALCULATION:
+            if al_crnt_soc & 128:
+                # Low SoC - Alarm
+                self.protection.low_soc = 2
+            elif al_crnt_soc & 64:
+                # Low SoC Warning level - Pre-alarm
+                self.protection.low_soc = 1
+            else:
+                self.protection.low_soc = 0
 
         return True
 
@@ -560,14 +578,14 @@ class Daly(Battery):
         else:
             return str(self.production) + "_" + str(int(self.capacity))
 
-    def reset_soc_callback(self, path, value):
+    def callback_soc_reset_to(self, path, value):
         if value is None:
             return False
 
         if value < 0 or value > 100:
             return False
 
-        self.reset_soc = value
+        self.soc_reset_to = value
         self.soc_to_set = value
         return True
 
@@ -612,7 +630,7 @@ class Daly(Battery):
             logger.error("write soc failed")
         return True
 
-    def force_charging_off_callback(self, path, value):
+    def callback_charging_force_off(self, path, value):
         if value is None:
             return False
 
@@ -626,7 +644,7 @@ class Daly(Battery):
 
         return False
 
-    def force_discharging_off_callback(self, path, value):
+    def callback_discharging_force_off(self, path, value):
         if value is None:
             return False
 

@@ -216,7 +216,7 @@ class History:
         Total charged energy in Kilowatt-hour.
         """
 
-    def reset_values(self, attributes: list = []) -> None:
+    def reset_values(self, attributes: list = None) -> None:
         """
         Reset all calculated values that are not excluded.
 
@@ -301,7 +301,7 @@ class Battery(ABC):
         # max battery charge/discharge current
         self.max_battery_charge_current: float = utils.MAX_BATTERY_CHARGE_CURRENT
         self.max_battery_discharge_current: float = utils.MAX_BATTERY_DISCHARGE_CURRENT
-        self.has_settings: bool = False
+        self.has_settings: bool = True if utils.SOC_CALCULATION else False
 
         # this values should only be initialized once,
         # else the BMS turns off the inverter on disconnect
@@ -310,10 +310,11 @@ class Battery(ABC):
         self.soc_calc_reset_start_time: int = None
         self.soc_calc: float = None  # save soc_calc to preserve on restart
         self.soc: float = None
+        self.soh: float = None
         self.charge_fet: bool = None
         self.discharge_fet: bool = None
         self.balance_fet: bool = None
-        self.block_because_disconnect: bool = False
+        self.heater_fet: bool = None
         self.control_charge_current: int = None
         self.control_discharge_current: int = None
         self.control_allow_charge: bool = None
@@ -329,7 +330,6 @@ class Battery(ABC):
         self.protection = Protection()
         self.history = History()
         self.version = None
-        self.soh: float = None  # state of health
         self.time_to_soc_update: int = 0
         self.temperature_1: float = None
         self.temperature_2: float = None
@@ -338,6 +338,7 @@ class Battery(ABC):
         self.temperature_mos: float = None
         self.cells: List[Cell] = []
         self.control_voltage: float = None
+        self.control_voltage_last_limit_time: int = None
         self.soc_reset_requested: bool = False
         self.soc_reset_last_reached: int = 0  # save state to preserve on restart
         self.soc_reset_battery_voltage: int = None
@@ -355,6 +356,11 @@ class Battery(ABC):
         self.linear_cvl_last_set: int = 0
         self.linear_ccl_last_set: int = 0
         self.linear_dcl_last_set: int = 0
+        self.heating: bool = None
+        self.heater_current: float = None
+        self.heater_power: float = None
+        self.heater_temperature_start: float = None
+        self.heater_temperature_stop: float = None
 
         # Needed for history calculation
         self.full_discharge_active: bool = False
@@ -374,7 +380,9 @@ class Battery(ABC):
         self.energy_discharged: float = 0
 
         # list of available callbacks, in order to display the buttons in the GUI
-        self.available_callbacks: List[str] = []
+        self.callbacks_available: List[str] = []
+        if utils.SOC_CALCULATION:
+            self.callbacks_available.append("callback_soc_reset_to")
 
         # display errors in the GUI
         # https://github.com/victronenergy/veutil/blob/master/inc/veutil/ve_regs_payload.h
@@ -439,19 +447,20 @@ class Battery(ABC):
         By slightly changing the capacity of each battery, this can make every battery unique.
         On +/- 5 Ah you can identify 11 different batteries.
 
-        For some BMS it's not possible to change the capacity or other values. In this case the port has
-        to be used as `unique_identifier`. Custom values for this battery like the custom name, will be
-        swapped or lost, if the port changes.
-        See https://github.com/Louisvdw/dbus-serialbattery/issues/1035
+        For some BMS models, you cannot change the battery’s capacity or other values. In these cases, the
+        port name has to be used as the unique identifier. If the port changes, custom settings like the battery’s
+        name may be lost or swapped.
+
+        If you set `USE_PORT_AS_UNIQUE_ID = True` in your config.ini, the port will always be used as the unique
+        identifier. This is handled in dbushelper.py when setting self.bms_id.
+
+        See: https://github.com/Louisvdw/dbus-serialbattery/issues/1035
 
         :return: the unique identifier
         """
-        if utils.USE_PORT_AS_UNIQUE_ID:
-            return self.port + ("__" + utils.bytearray_to_string(self.address).replace("\\", "0") if self.address is not None else "")
-        else:
-            string = "".join(filter(str.isalnum, str(self.hardware_version))) + "_" if self.hardware_version is not None and self.hardware_version != "" else ""
-            string += str(self.capacity) + "Ah"
-            return string
+        string = ("".join(filter(str.isalnum, str(self.hardware_version))) + "_") if self.hardware_version is not None and self.hardware_version != "" else ""
+        string += str(self.capacity) + "Ah"
+        return string
 
     def connection_name(self) -> str:
         """
@@ -504,7 +513,7 @@ class Battery(ABC):
     def get_settings(self) -> bool:
         """
         Each driver must override this function to read the battery settings.
-        It's called only once after a successful connection by `DbusHelper.setup_vedbus()`.
+        Call it from test_connection().
 
         See `battery_template.py` for an example.
 
@@ -667,11 +676,17 @@ class Battery(ABC):
         :return: None
         """
         time_diff = 0
-        control_voltage = 0
+        control_voltage = self.max_battery_voltage
         current_time = int(time())
+        # How fast the voltage should be increased/decreased per second
+        # Used in cell over voltage protection and float transition
+        VOLTAGE_STEP_PER_SECOND = 0.001
 
         if utils.CVL_CONTROLLER_MODE == 1:
             penalty_sum = 0
+
+        if utils.CVL_CONTROLLER_MODE == 3:
+            clipped_coltage = 0
 
         try:
             voltage_sum = self.get_cell_voltage_sum()
@@ -781,26 +796,79 @@ class Battery(ABC):
                         self.max_battery_voltage,
                     )
 
+                # use clipped sum controller
+                elif utils.CVL_CONTROLLER_MODE == 3:
+                    found_high_cell_voltage = False
+
+                    # check for cell overvoltage
+                    if self.get_max_cell_voltage() > cell_voltage_max_allowed:
+                        for i in range(self.cell_count):
+                            voltage = self.get_cell_voltage(i)
+                            if voltage:
+                                # calculate current voltage without overvoltage
+                                if voltage > cell_voltage_max_allowed:
+                                    found_high_cell_voltage = True
+                                    clipped_coltage += cell_voltage_max_allowed
+                                else:
+                                    clipped_coltage += voltage
+
+                    if found_high_cell_voltage:
+                        # add little voltage to keep charging
+                        control_voltage = clipped_coltage + 0.010
+                    else:
+                        control_voltage = self.max_battery_voltage
+
                 # use no controller
                 else:
                     control_voltage = self.max_battery_voltage
 
-                # set control voltage
-                # 6 decimals are needed for a proper controller working
-                # https://github.com/Louisvdw/dbus-serialbattery/issues/1041
-                self.control_voltage = round(control_voltage, 6)
-
                 self.charge_mode = "Bulk" if self.max_voltage_start_time is None else "Absorption"
 
-                # If control voltage is not equal to max battery voltage, then a high cell voltage was detected
-                if control_voltage != self.max_battery_voltage:
+                # Recover slowly the voltage, if needed
+                # Set control voltage immediately, if not reduced by the controller
+                if control_voltage >= self.max_battery_voltage and self.control_voltage_last_limit_time is None:
+                    self.control_voltage = round(self.max_battery_voltage, 6)
+
+                # Set control voltage immediately, if control voltage is lower then previous control voltage
+                # or if it remains the same
+                elif self.control_voltage is None or control_voltage <= self.control_voltage:
+                    self.control_voltage_last_limit_time = current_time
+                    self.control_voltage = round(control_voltage, 6)
                     self.charge_mode += " (Cell OVP)"  # Cell over voltage protection
+
+                # Slowly recover
+                else:
+                    # If control voltage was not set before, set it now
+                    if self.control_voltage_last_limit_time is None:
+                        self.control_voltage_last_limit_time = current_time
+
+                    seconds_since_limit = current_time - self.control_voltage_last_limit_time
+                    # Calculate the allowed recovery voltage
+                    if seconds_since_limit < 60:
+                        allowed_voltage = self.control_voltage  # hold voltage steady
+                        self.charge_mode += " (Cell OVP)"  # Cell over voltage protection
+                    else:
+                        allowed_voltage = min(
+                            self.control_voltage + VOLTAGE_STEP_PER_SECOND * (seconds_since_limit - 60),
+                            self.max_battery_voltage,
+                        )
+                        self.charge_mode += " (Cell OVP*)"  # Cell over voltage protection
+
+                    # If control voltage is the same as max battery voltage, reset control_voltage_last_limit_time
+                    if allowed_voltage == self.max_battery_voltage:
+                        self.control_voltage_last_limit_time = None
+
+                    self.control_voltage = round(allowed_voltage, 6)
 
                 if self.max_battery_voltage == self.soc_reset_battery_voltage:
                     self.charge_mode += " & SoC Reset"
 
-                if self.get_balancing() and voltage_cell_diff >= utils.SWITCH_TO_BULK_CELL_VOLTAGE_DIFF:
+                # if self.get_balancing() and voltage_cell_diff >= utils.SWITCH_TO_BULK_CELL_VOLTAGE_DIFF:
+                if self.get_balancing():
                     self.charge_mode += " + Balancing"
+
+                if self.get_heating():
+                    self.charge_mode += " + Heating"
 
             # Float mode
             else:
@@ -835,9 +903,8 @@ class Battery(ABC):
                     elif self.charge_mode.startswith("Float Transition"):
                         elapsed_time = current_time - self.transition_start_time
                         # Voltage reduction per second
-                        VOLTAGE_REDUCTION_PER_SECOND = 0.01 / 10
                         voltage_reduction = min(
-                            VOLTAGE_REDUCTION_PER_SECOND * elapsed_time,
+                            VOLTAGE_STEP_PER_SECOND * elapsed_time,
                             self.initial_control_voltage - float_voltage,
                         )
                         self.control_voltage = self.initial_control_voltage - voltage_reduction
@@ -853,9 +920,21 @@ class Battery(ABC):
                 self.charge_mode = charge_mode
 
             if utils.CHARGE_MODE == 2:
-                self.charge_mode += ", Step Mode"
+                self.charge_mode += " │ Step Mode"
             else:
-                self.charge_mode += ", Linear Mode"
+                self.charge_mode += " │ Linear Mode"
+
+            """
+            MAX_CHAR = 30
+            # check if self.charge_mode is longer then MAX_CHAR characters and if yes add a line break
+            if len(self.charge_mode) > MAX_CHAR:
+                # Find the last space before or at position MAX_CHAR
+                space_index = self.charge_mode.rfind(" ", 0, MAX_CHAR)
+                if space_index == -1:
+                    # If no space found, fallback to MAX_CHAR
+                    space_index = MAX_CHAR
+                self.charge_mode = self.charge_mode[:space_index] + "\n" + self.charge_mode[space_index + 1 :]
+            """
 
             # debug information
             if utils.GUI_PARAMETERS_SHOW_ADDITIONAL_INFO or logger.isEnabledFor(logging.DEBUG):
@@ -867,18 +946,22 @@ class Battery(ABC):
                 formatted_time = driver_start_time_dt.strftime("%Y.%m.%d %H:%M:%S")
 
                 self.charge_mode_debug = (
-                    f"driver started: {formatted_time} • running since: {self.get_seconds_to_string(int(time()) - self.driver_start_time)}\n"
+                    f"driver started: {formatted_time} • running since: {self.get_seconds_to_string(int(time()) - self.driver_start_time, 3)}\n"
                     + f"max_battery_voltage: {safe_number_format(self.max_battery_voltage, '{:.2f}')} V • "
                     + f"voltage: {safe_number_format(self.voltage, '{:.2f}')} V\n"
-                    + f"control_voltage: {safe_number_format(self.control_voltage, '{:.2f}')} V + "
+                    + f"self.control_voltage: {safe_number_format(self.control_voltage, '{:.2f}')} V + "
                     + f"{safe_number_format(utils.VOLTAGE_DROP, '{:.2f}')} V (VOLTAGE_DROP) = "
                     + f"{safe_number_format((self.control_voltage + utils.VOLTAGE_DROP), '{:.2f}')} V\n"
+                    + f"control_voltage: {safe_number_format(control_voltage, '{:.2f}')} V • "
+                    + "seconds_since_limit: "
+                    + f"{current_time - self.control_voltage_last_limit_time if self.control_voltage_last_limit_time is not None else 0} s\n"
                     + f"voltage_sum: {safe_number_format(voltage_sum, '{:.2f}')} V • "
                     + f"voltage_cell_diff: {safe_number_format(voltage_cell_diff, '{:.3f}')} V\n"
                     + f"max_cell_voltage: {self.get_max_cell_voltage()} V"
                     + (f" • penalty_sum: {safe_number_format(penalty_sum, '{:.3f}')} V" if utils.CVL_CONTROLLER_MODE == 1 else "")
                     + "\n"
                     + f"soc: {self.soc}% • soc_calc: {self.soc_calc}%\n"
+                    + f"soh: {self.soh}%\n"
                     + f"current: {safe_number_format(self.current, '{:.2f}')}A"
                     + (f" • current_calc: {safe_number_format(self.current_calc, '{:.2f}')} A\n" if self.current_calc is not None else "\n")
                     + f"current_time: {current_time}\n"
@@ -886,13 +969,12 @@ class Battery(ABC):
                     + f"charge_fet: {self.charge_fet} • control_allow_charge: {self.control_allow_charge}\n"
                     + f"discharge_fet: {self.discharge_fet} • "
                     + f"control_allow_discharge: {self.control_allow_discharge}\n"
-                    + f"block_because_disconnect: {self.block_because_disconnect}\n"
                     + (
                         (
                             "soc_reset_last_reached: "
                             + ("Never" if self.soc_reset_last_reached == 0 else f"{soc_reset_days_ago} d ago")
                             + ", next "
-                            + (" already planned" if soc_reset_in_days < 0 else "in {soc_reset_in_days} d")
+                            + (" already planned" if soc_reset_in_days < 0 else f"in {soc_reset_in_days} d")
                             + "\n"
                         )
                         if utils.SOC_RESET_AFTER_DAYS is not False
@@ -943,32 +1025,7 @@ class Battery(ABC):
             exception_type, exception_object, exception_traceback = sys.exc_info()
             file = exception_traceback.tb_frame.f_code.co_filename
             line = exception_traceback.tb_lineno
-            logger.error("Non blocking exception occurred: " + f"{repr(exception_object)} of type {exception_type} in {file} line #{line}")
-
-    def set_cvl_linear(self, control_voltage: float) -> bool:
-        """
-        Set CVL only once every `CVL_RECALCULATION_EVERY` seconds or if the CVL changes more than
-        `CVL_RECALCULATION_ON_MAX_PERCENTAGE_CHANGE` percent.
-
-        TODO: Seems to not be needed anymore. Will be removed in future.
-
-        :return: The status, if the CVL was set
-        """
-        current_time = int(time())
-        diff = abs(self.control_voltage - control_voltage) if self.control_voltage is not None else 0
-
-        if utils.CVL_RECALCULATION_EVERY <= current_time - self.linear_cvl_last_set or (
-            diff
-            >= self.control_voltage
-            * utils.CVL_RECALCULATION_ON_MAX_PERCENTAGE_CHANGE
-            / 100
-            / 10  # for more precision, since the changes are small in this case
-        ):
-            self.control_voltage = control_voltage
-            self.linear_cvl_last_set = current_time
-            return True
-
-        return False
+            logger.error(f"Non blocking exception occurred: {repr(exception_object)} of type {exception_type} in {file} line #{line}")
 
     def manage_charge_and_discharge_current(self) -> None:
         """
@@ -1033,8 +1090,8 @@ class Battery(ABC):
                 else:
                     charge_limits.update({tmp: "SoC"})
 
-        # set CCL to 0, if BMS does not allow to charge
-        if self.charge_fet is False or self.block_because_disconnect:
+        # set CCL to 0, if BMS does not allow to charge or battery is disconnected
+        if self.charge_fet is False:
             if 0 in charge_limits:
                 charge_limits.update({0: charge_limits[0] + ", BMS"})
             else:
@@ -1131,8 +1188,8 @@ class Battery(ABC):
                 else:
                     discharge_limits.update({tmp: "SoC"})
 
-        # set DCL to 0, if BMS does not allow to discharge
-        if self.discharge_fet is False or self.block_because_disconnect:
+        # set DCL to 0, if BMS does not allow to discharge or battery is disconnected
+        if self.discharge_fet is False:
             if 0 in discharge_limits:
                 discharge_limits.update({0: discharge_limits[0] + ", BMS"})
             else:
@@ -1217,7 +1274,7 @@ class Battery(ABC):
             exception_type, exception_object, exception_traceback = sys.exc_info()
             file = exception_traceback.tb_frame.f_code.co_filename
             line = exception_traceback.tb_lineno
-            logger.error("Non blocking exception occurred: " + f"{repr(exception_object)} of type {exception_type} in {file} line #{line}")
+            logger.error(f"Non blocking exception occurred: {repr(exception_object)} of type {exception_type} in {file} line #{line}")
             return self.max_battery_charge_current
 
     def calc_max_discharge_current_from_cell_voltage(self) -> float:
@@ -1252,7 +1309,7 @@ class Battery(ABC):
             # set error code, to show in the GUI that something is wrong
             self.manage_error_code(8)
 
-            logger.error("calc_max_charge_current_from_cell_voltage(): Error while executing," + " using default current instead.")
+            logger.error("calc_max_discharge_current_from_cell_voltage(): Error while executing, using default current instead.")
             logger.error(
                 f"get_min_cell_voltage: {self.get_min_cell_voltage()}"
                 + f" • CELL_VOLTAGES_WHILE_DISCHARGING: {utils.CELL_VOLTAGES_WHILE_DISCHARGING}"
@@ -1262,8 +1319,8 @@ class Battery(ABC):
             exception_type, exception_object, exception_traceback = sys.exc_info()
             file = exception_traceback.tb_frame.f_code.co_filename
             line = exception_traceback.tb_lineno
-            logger.error("Non blocking exception occurred: " + f"{repr(exception_object)} of type {exception_type} in {file} line #{line}")
-            return self.max_battery_charge_current
+            logger.error(f"Non blocking exception occurred: {repr(exception_object)} of type {exception_type} in {file} line #{line}")
+            return self.max_battery_discharge_current
 
     def calc_max_charge_current_from_temperature(self) -> float:
         """
@@ -1272,12 +1329,14 @@ class Battery(ABC):
         :return: The maximum charge current
         """
         if self.get_max_temperature() is None or self.get_min_temperature() is None:
-            logging.warning(
-                "calc_max_charge_current_from_temperature():"
-                + f" get_max_temperature() is {self.get_max_temperature()} or get_min_temperature() is {self.get_min_temperature()}"
-                + ", using default current instead."
-                + " If you don't see this warning very often, you can ignore it."
-            )
+            # Not all AioBmsBle BMS provide temperature readings
+            if not self.connection_name().startswith("aiobmsble"):
+                logging.warning(
+                    "calc_max_charge_current_from_temperature():"
+                    + f" get_max_temperature() is {self.get_max_temperature()} or get_min_temperature() is {self.get_min_temperature()}"
+                    + ", using default current instead."
+                    + " If you don't see this warning very often, you can ignore it."
+                )
             return self.max_battery_charge_current
 
         temperatures = {0: self.get_max_temperature(), 1: self.get_min_temperature()}
@@ -1307,7 +1366,7 @@ class Battery(ABC):
             # set error code, to show in the GUI that something is wrong
             self.manage_error_code(8)
 
-            logger.error("calc_max_charge_current_from_temperature(): Error while executing," + " using default current instead.")
+            logger.error("calc_max_charge_current_from_temperature(): Error while executing, using default current instead.")
             logger.error(
                 f"temperatures: {temperatures}"
                 + f" • TEMPERATURES_WHILE_CHARGING: {utils.TEMPERATURES_WHILE_CHARGING}"
@@ -1317,7 +1376,7 @@ class Battery(ABC):
             exception_type, exception_object, exception_traceback = sys.exc_info()
             file = exception_traceback.tb_frame.f_code.co_filename
             line = exception_traceback.tb_lineno
-            logger.error("Non blocking exception occurred: " + f"{repr(exception_object)} of type {exception_type} in {file} line #{line}")
+            logger.error(f"Non blocking exception occurred: {repr(exception_object)} of type {exception_type} in {file} line #{line}")
             return self.max_battery_charge_current
 
     def calc_max_discharge_current_from_temperature(self) -> float:
@@ -1327,12 +1386,14 @@ class Battery(ABC):
         :return: The maximum discharge current
         """
         if self.get_max_temperature() is None or self.get_min_temperature() is None:
-            logging.warning(
-                "calc_max_discharge_current_from_temperature():"
-                + f" get_max_temperature() is {self.get_max_temperature()} or get_min_temperature() is {self.get_min_temperature()}"
-                + ", using default current instead."
-                + " If you don't see this warning very often, you can ignore it."
-            )
+            # Not all AioBmsBle BMS provide temperature readings
+            if not self.connection_name().startswith("aiobmsble"):
+                logging.warning(
+                    "calc_max_discharge_current_from_temperature():"
+                    + f" get_max_temperature() is {self.get_max_temperature()} or get_min_temperature() is {self.get_min_temperature()}"
+                    + ", using default current instead."
+                    + " If you don't see this warning very often, you can ignore it."
+                )
             return self.max_battery_discharge_current
 
         temperatures = {0: self.get_max_temperature(), 1: self.get_min_temperature()}
@@ -1362,7 +1423,7 @@ class Battery(ABC):
             # set error code, to show in the GUI that something is wrong
             self.manage_error_code(8)
 
-            logger.error("calc_max_discharge_current_from_temperature(): Error while executing," + " using default current instead.")
+            logger.error("calc_max_discharge_current_from_temperature(): Error while executing, using default current instead.")
             logger.error(
                 f"temperatures: {temperatures}"
                 + f" • TEMPERATURES_WHILE_DISCHARGING: {utils.TEMPERATURES_WHILE_DISCHARGING}"
@@ -1372,8 +1433,8 @@ class Battery(ABC):
             exception_type, exception_object, exception_traceback = sys.exc_info()
             file = exception_traceback.tb_frame.f_code.co_filename
             line = exception_traceback.tb_lineno
-            logger.error("Non blocking exception occurred: " + f"{repr(exception_object)} of type {exception_type} in {file} line #{line}")
-            return self.max_battery_charge_current
+            logger.error(f"Non blocking exception occurred: {repr(exception_object)} of type {exception_type} in {file} line #{line}")
+            return self.max_battery_discharge_current
 
     def calc_max_charge_current_from_mosfet_temperature(self) -> float:
         """
@@ -1402,7 +1463,7 @@ class Battery(ABC):
             # set error code, to show in the GUI that something is wrong
             self.manage_error_code(8)
 
-            logger.error("calc_max_charge_current_from_mosfet_temperature(): Error while executing," + " using default current instead.")
+            logger.error("calc_max_charge_current_from_mosfet_temperature(): Error while executing, using default current instead.")
             logger.error(
                 f"temperature_mos: {self.temperature_mos}"
                 + f" • MOSFET_TEMPERATURES_WHILE_CHARGING: {utils.MOSFET_TEMPERATURES_WHILE_CHARGING}"
@@ -1412,7 +1473,7 @@ class Battery(ABC):
             exception_type, exception_object, exception_traceback = sys.exc_info()
             file = exception_traceback.tb_frame.f_code.co_filename
             line = exception_traceback.tb_lineno
-            logger.error("Non blocking exception occurred: " + f"{repr(exception_object)} of type {exception_type} in {file} line #{line}")
+            logger.error(f"Non blocking exception occurred: {repr(exception_object)} of type {exception_type} in {file} line #{line}")
             return self.max_battery_charge_current
 
     def calc_max_discharge_current_from_mosfet_temperature(self) -> float:
@@ -1422,7 +1483,7 @@ class Battery(ABC):
         :return: The maximum discharge current
         """
         if self.temperature_mos is None:
-            return self.max_battery_charge_current
+            return self.max_battery_discharge_current
 
         try:
             if utils.CHARGE_MODE == 2:
@@ -1442,7 +1503,7 @@ class Battery(ABC):
             # set error code, to show in the GUI that something is wrong
             self.manage_error_code(8)
 
-            logger.error("calc_max_discharge_current_from_mosfet_temperature(): Error while executing," + " using default current instead.")
+            logger.error("calc_max_discharge_current_from_mosfet_temperature(): Error while executing, using default current instead.")
             logger.error(
                 f"temperature_mos: {self.temperature_mos}"
                 + f" • MOSFET_TEMPERATURES_WHILE_DISCHARGING: {utils.MOSFET_TEMPERATURES_WHILE_DISCHARGING}"
@@ -1452,8 +1513,8 @@ class Battery(ABC):
             exception_type, exception_object, exception_traceback = sys.exc_info()
             file = exception_traceback.tb_frame.f_code.co_filename
             line = exception_traceback.tb_lineno
-            logger.error("Non blocking exception occurred: " + f"{repr(exception_object)} of type {exception_type} in {file} line #{line}")
-            return self.max_battery_charge_current
+            logger.error(f"Non blocking exception occurred: {repr(exception_object)} of type {exception_type} in {file} line #{line}")
+            return self.max_battery_discharge_current
 
     def calc_max_charge_current_from_soc(self) -> float:
         """
@@ -1479,7 +1540,7 @@ class Battery(ABC):
             # set error code, to show in the GUI that something is wrong
             self.manage_error_code(8)
 
-            logger.error("calc_max_charge_current_from_soc(): Error while executing," + " using default current instead.")
+            logger.error("calc_max_charge_current_from_soc(): Error while executing, using default current instead.")
             logger.error(
                 f"soc_calc: {self.soc_calc}"
                 + f" • SOC_WHILE_CHARGING: {utils.SOC_WHILE_CHARGING}"
@@ -1516,7 +1577,7 @@ class Battery(ABC):
             # set error code, to show in the GUI that something is wrong
             self.manage_error_code(8)
 
-            logger.error("calc_max_discharge_current_from_soc: Error while executing," + " using default current instead.")
+            logger.error("calc_max_discharge_current_from_soc: Error while executing, using default current instead.")
             logger.error(
                 f"soc_calc: {self.soc_calc}"
                 + f" • SOC_WHILE_DISCHARGING: {utils.SOC_WHILE_DISCHARGING}"
@@ -1684,16 +1745,18 @@ class Battery(ABC):
 
         return time_to_go_str
 
-    def get_seconds_to_string(self, seconds: int, precision: int = 3) -> str:
+    def get_seconds_to_string(self, seconds: int, precision: int = 4) -> str:
         """
         Transforms seconds to a string in the format: 1d 1h 1m 1s (Victron Style)
 
         :param seconds: The seconds to transform
         :param precision:
-            - 0 = 1d
-            - 1 = 1d 1h
-            - 2 = 1d 1h 1m
-            - 3 = 1d 1h 1m 1s
+            - 0 = 1d \n
+            - 1 = 1d 1h \n
+            - 2 = 1d 1h 1m \n
+            - 3 = 1d 1h 1m 1s \n
+            - 4 = always show the biggest non zero one and the next smaller,
+                e.g. 2h 15m, 2h 0m, 3d 4h, 3d 0h, 5m 20s
 
         This was added, since timedelta() returns strange values, if time is negative
         e.g.: seconds: -70245
@@ -1711,8 +1774,8 @@ class Battery(ABC):
 
         tmp += (str(d) + "d ") if d > 0 else ""
         tmp += (str(h) + "h ") if precision >= 1 and h > 0 else ""
-        tmp += (str(m) + "m ") if precision >= 2 and m > 0 else ""
-        tmp += (str(s) + "s ") if precision == 3 and s > 0 else ""
+        tmp += "" if precision == 4 and d > 0 else (str(m) + "m ") if precision >= 2 and m > 0 else ""
+        tmp += "" if precision == 4 and (d > 0 or h > 0) else (str(s) + "s ") if precision >= 3 and s > 0 else ""
 
         return tmp.rstrip()
 
@@ -1785,6 +1848,9 @@ class Battery(ABC):
                 return 1
         return 0
 
+    def get_heating(self) -> int:
+        return self.heating
+
     def get_filtered_temperature_map(self) -> Dict[int, float]:
         """
         Get the temperature map with only the sensors that are in the TEMPERATURE_SOURCE_BATTERY list.
@@ -1851,13 +1917,16 @@ class Battery(ABC):
             return None
 
     def get_allow_to_charge(self) -> bool:
-        return True if self.charge_fet and self.control_allow_charge and self.block_because_disconnect is False else False
+        return True if self.charge_fet and self.control_allow_charge else False
 
     def get_allow_to_discharge(self) -> bool:
-        return True if self.discharge_fet and self.control_allow_discharge and self.block_because_disconnect is False else False
+        return True if self.discharge_fet and self.control_allow_discharge else False
 
     def get_allow_to_balance(self) -> bool:
-        return True if self.balance_fet else False
+        return True if self.balance_fet else False if self.balance_fet is False else None
+
+    def get_allow_to_heat(self) -> bool:
+        return True if self.heater_fet else False if self.heater_fet is False else None
 
     def validate_data(self) -> bool:
         """
@@ -1905,7 +1974,7 @@ class Battery(ABC):
             if is_present_in_vebus:
 
                 if utils.EXTERNAL_SENSOR_DBUS_PATH_CURRENT is not None:
-                    logger.info("Using external sensor for current: " + f"{utils.EXTERNAL_SENSOR_DBUS_DEVICE}{utils.EXTERNAL_SENSOR_DBUS_PATH_CURRENT}")
+                    logger.info(f"Using external sensor for current: {utils.EXTERNAL_SENSOR_DBUS_DEVICE}{utils.EXTERNAL_SENSOR_DBUS_PATH_CURRENT}")
                     dbus_objects["Current"] = VeDbusItemImport(
                         dbus_connection,
                         utils.EXTERNAL_SENSOR_DBUS_DEVICE,
@@ -1913,7 +1982,7 @@ class Battery(ABC):
                     )
 
                 if utils.EXTERNAL_SENSOR_DBUS_PATH_SOC is not None:
-                    logger.info("Using external sensor for SOC: " + f"{utils.EXTERNAL_SENSOR_DBUS_DEVICE}{utils.EXTERNAL_SENSOR_DBUS_PATH_SOC}")
+                    logger.info(f"Using external sensor for SOC: {utils.EXTERNAL_SENSOR_DBUS_DEVICE}{utils.EXTERNAL_SENSOR_DBUS_PATH_SOC}")
                     dbus_objects["Soc"] = VeDbusItemImport(
                         dbus_connection,
                         utils.EXTERNAL_SENSOR_DBUS_DEVICE,
@@ -1935,7 +2004,7 @@ class Battery(ABC):
             ) = sys.exc_info()
             file = exception_traceback.tb_frame.f_code.co_filename
             line = exception_traceback.tb_lineno
-            logger.error("Exception occurred: " + f"{repr(exception_object)} of type {exception_type} in {file} line #{line}")
+            logger.error(f"Exception occurred: {repr(exception_object)} of type {exception_type} in {file} line #{line}")
             logger.error("External current sensor setup failed, fallback to internal sensor")
 
     def get_current(self) -> Union[float, None]:
@@ -2092,17 +2161,27 @@ class Battery(ABC):
         logger.info("========== Settings ==========")
         logger.info(
             f"> Connection voltage: {self.voltage} V | Current: {self.current_calc} A | SoC: {self.soc}%"
+            + (f" | SoH: {self.soh}%" if self.soh is not None else "")
             + (f" | SoC calc: {self.soc_calc:.0f}%" if utils.SOC_CALCULATION else "")
         )
         logger.info(f"> Cell count: {self.cell_count} | Cells populated: {cell_counter}")
+        logger.info(f"> BLOCK ON DISCONNECT: {utils.BLOCK_ON_DISCONNECT}")
+        if not utils.BLOCK_ON_DISCONNECT:
+            logger.info(f"> |- BLOCK ON DISCONNECT TIMEOUT MINUTES: {utils.BLOCK_ON_DISCONNECT_TIMEOUT_MINUTES}")
+            logger.info(f"> |- BLOCK ON DISCONNECT VOLTAGE MIN: {utils.BLOCK_ON_DISCONNECT_VOLTAGE_MIN:.3f} V")
+            logger.info(f"> |- BLOCK ON DISCONNECT VOLTAGE MAX: {utils.BLOCK_ON_DISCONNECT_VOLTAGE_MAX:.3f} V")
         logger.info(f'> CHARGE MODE: {"Linear" if utils.CHARGE_MODE == 1 else "Step" if utils.CHARGE_MODE == 2 else "Unknown"}')
+        logger.info(f"> MIN CELL VOLTAGE: {utils.MIN_CELL_VOLTAGE:.3f} V | MAX CELL VOLTAGE: {utils.MAX_CELL_VOLTAGE:.3f} V")
         logger.info(
-            f"> MIN CELL VOLTAGE: {utils.MIN_CELL_VOLTAGE:.3f} V "
-            + f"| MAX CELL VOLTAGE: {utils.MAX_CELL_VOLTAGE:.3f} V"
-            + f"| FLOAT CELL VOLTAGE: {utils.FLOAT_CELL_VOLTAGE:.3f} V"
+            f"> FLOAT CELL VOLTAGE: {utils.FLOAT_CELL_VOLTAGE:.3f} V"
+            + (
+                f" | SOC RESET CELL VOLTAGE: {utils.SOC_RESET_CELL_VOLTAGE:.3f} V | SOC_RESET_AFTER_DAYS: {utils.SOC_RESET_AFTER_DAYS}"
+                if utils.SOC_RESET_AFTER_DAYS is not None
+                else ""
+            )
         )
         logger.info(
-            f"> MAX BATTERY CHARGE CURRENT: {utils.MAX_BATTERY_CHARGE_CURRENT} A | " + f"MAX BATTERY DISCHARGE CURRENT: {utils.MAX_BATTERY_DISCHARGE_CURRENT} A"
+            f"> MAX BATTERY CHARGE CURRENT: {utils.MAX_BATTERY_CHARGE_CURRENT} A | MAX BATTERY DISCHARGE CURRENT: {utils.MAX_BATTERY_DISCHARGE_CURRENT} A"
         )
         if (
             (utils.MAX_BATTERY_CHARGE_CURRENT != self.max_battery_charge_current or utils.MAX_BATTERY_DISCHARGE_CURRENT != self.max_battery_discharge_current)
@@ -2113,34 +2192,97 @@ class Battery(ABC):
                 f"> MAX BATTERY CHARGE CURRENT: {self.max_battery_charge_current} A | "
                 + f"MAX BATTERY DISCHARGE CURRENT: {self.max_battery_discharge_current} A (read from BMS)"
             )
-        logger.info(f"> CVCM:       {utils.CVCM_ENABLE}")
-        logger.info(f"> CCCM CV:    {str(utils.CCCM_CV_ENABLE).ljust(5)} | DCCM CV:       {utils.DCCM_CV_ENABLE}")
-        logger.info(f"> CCCM T:     {str(utils.CCCM_T_ENABLE).ljust(5)} | DCCM T:        {utils.DCCM_T_ENABLE}")
-        logger.info(f"> CCCM T MOS: {str(utils.CCCM_T_MOSFET_ENABLE).ljust(5)} | DCCM T MOS:    {utils.DCCM_T_MOSFET_ENABLE}")
-        logger.info(f"> CCCM SOC:   {str(utils.CCCM_SOC_ENABLE).ljust(5)} | DCCM SOC:      {utils.DCCM_SOC_ENABLE}")
-        logger.info(f"> CHARGE FET: {str(self.charge_fet).ljust(5)} | DISCHARGE FET: {self.discharge_fet} | BALANCE FET: {self.balance_fet}")
+        logger.info(f"> CVCM:        {utils.CVCM_ENABLE}")
+        logger.info(f"> CCCM CV:     {str(utils.CCCM_CV_ENABLE).ljust(5)} | DCCM CV:       {utils.DCCM_CV_ENABLE}")
+        logger.info(f"> CCCM T:      {str(utils.CCCM_T_ENABLE).ljust(5)} | DCCM T:        {utils.DCCM_T_ENABLE}")
+        logger.info(f"> CCCM T MOS:  {str(utils.CCCM_T_MOSFET_ENABLE).ljust(5)} | DCCM T MOS:    {utils.DCCM_T_MOSFET_ENABLE}")
+        logger.info(f"> CCCM SOC:    {str(utils.CCCM_SOC_ENABLE).ljust(5)} | DCCM SOC:      {utils.DCCM_SOC_ENABLE}")
+        logger.info(f"> CHARGE FET:  {str(self.charge_fet).ljust(5)} | DISCHARGE FET: {self.discharge_fet}")
+        if self.balance_fet is not None or self.heater_fet is not None:
+            logger.info(
+                "> "
+                + (f"BALANCE FET: {str(self.balance_fet).ljust(5)}" if self.balance_fet is not None else "")
+                + (" | " if self.balance_fet is not None and self.heater_fet is not None else "")
+                + (f"HEATER FET: {self.heater_fet}" if self.heater_fet is not None else "")
+            )
         logger.info(f"Serial Number/Unique Identifier: {self.unique_identifier()}")
+        if utils.USE_PORT_AS_UNIQUE_ID:
+            logger.info(f"Serial number/Unique identifier (USE_PORT_AS_UNIQUE_ID): {utils.generate_unique_identifier(self.port, self.address)}")
 
         return
 
-    def reset_soc_callback(self, path: str, value: int) -> bool:
-        # callback for handling reset soc request
-        return False  # return False to indicate that the callback was not handled
+    """
+    Naming of callback functions:  callback_<option>_<action>
+    The callback function must be declared as dummy in battery.py and be registered in dbushelper.py for handling the dbus path.
+    The callback function must be fully implemented at the driver level and must be specified in self.callbacks_available = ["<callback function name>"]
+    to activate the registration by dbushelper.py
+    """
 
-    def force_charging_off_callback(self, path: str, value: int) -> bool:
-        return False  # return False to indicate that the callback was not handled
+    def callback_charging_force_off(self, path: str, value: int) -> bool:
+        """
+        Callback to disable charging directly on the BMS hardware (not in the driver).
 
-    def force_discharging_off_callback(self, path: str, value: int) -> bool:
-        return False  # return False to indicate that the callback was not handled
+        :param self: Instance of the battery class
+        :param path: d-bus path of the value that changed (can be ignored in this case)
+        :param value: value that was set through the GUI (0=disabled, 1=enabled)
+        :return: True if the callback was handled successfully, False otherwise
+        """
+        return False
 
-    def turn_balancing_off_callback(self, path: str, value: int) -> bool:
-        return False  # return False to indicate that the callback was not handled
+    def callback_discharging_force_off(self, path: str, value: int) -> bool:
+        """
+        Callback to disable discharging directly on the BMS hardware (not in the driver).
+
+        :param self: Instance of the battery class
+        :param path: d-bus path of the value that changed (can be ignored in this case)
+        :param value: value that was set through the GUI (0=disabled, 1=enabled)
+        :return: True if the callback was handled successfully, False otherwise
+        """
+        return False
+
+    def callback_balancing_turn_off(self, path: str, value: int) -> bool:
+        """
+        Callback to disable balancing directly on the BMS hardware (not in the driver).
+
+        :param self: Instance of the battery class
+        :param path: d-bus path of the value that changed (can be ignored in this case)
+        :param value: value that was set through the GUI (0=disabled, 1=enabled)
+        :return: True if the callback was handled successfully, False otherwise
+        """
+        return False
+
+    def callback_heating_turn_off(self, path: str, value: int) -> bool:
+        """
+        Callback to disable heating directly on the BMS hardware (not in the driver).
+
+        :param self: Instance of the battery class
+        :param path: d-bus path of the value that changed (can be ignored in this case)
+        :param value: value that was set through the GUI (0=disabled, 1=enabled)
+        :return: True if the callback was handled successfully, False otherwise
+        """
+        return False
+
+    def callback_soc_reset_to(self, path: str, value: int) -> bool:
+        """
+        Callback to reset the SOC directly on the BMS hardware (not in the driver)
+        to a specific value.
+
+        :param self: Instance of the battery class
+        :param path: d-bus path of the value that changed (can be ignored in this case)
+        :param value: value that was set through the GUI (0=disabled, 1=enabled)
+        :return: True if the callback was handled successfully, False otherwise
+        """
+        return False
 
     def trigger_soc_reset(self) -> bool:
         """
-        This method can be used to implement SOC reset when the battery is assumed to be full
+        This method is called when the driver charging algorithm changes from bulk/absorption to float.
+        It can be used to set the SOC on the BMS hardware (not in the driver) to 100% when the battery is
+        assumed to be full
+
+        :return: True if the callback was handled successfully, False otherwise
         """
-        return False  # return False to indicate that the callback was not handled
+        return False
 
     def history_calculate_values(self) -> None:
         """
@@ -2165,7 +2307,7 @@ class Battery(ABC):
             if self.history.full_discharges is None:
                 self.history.full_discharges = 0
             else:
-                if self.soc_calc == 0:
+                if self.soc_calc == 0 and not self.full_discharge_active:
                     self.history.full_discharges += 1
                     self.full_discharge_active = True
 

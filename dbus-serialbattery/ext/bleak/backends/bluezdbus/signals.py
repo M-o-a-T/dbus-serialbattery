@@ -1,8 +1,14 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    if sys.platform != "linux":
+        assert False, "This backend is only available on Linux"
+
 import re
-from typing import Any, Coroutine, Dict, Optional
+from typing import Any, Optional
 
 from dbus_fast.aio.message_bus import MessageBus
 from dbus_fast.errors import InvalidObjectPathError
@@ -69,38 +75,38 @@ class MatchRules:
         path_namespace: Optional[str] = None,
         destination: Optional[str] = None,
         arg0namespace: Optional[str] = None,
-        **kwargs,
+        **kwargs: Any,
     ):
         assert_bus_name_valid(type)
         self.type: str = type
 
         if sender:
             assert_bus_name_valid(sender)
-            self.sender: str = sender
+            self.sender: Optional[str] = sender
         else:
             self.sender = None
 
         if interface:
             assert_interface_name_valid(interface)
-            self.interface: str = interface
+            self.interface: Optional[str] = interface
         else:
             self.interface = None
 
         if member:
             assert_member_name_valid(member)
-            self.member: str = member
+            self.member: Optional[str] = member
         else:
             self.member = None
 
         if path:
             assert_object_path_valid(path)
-            self.path: str = path
+            self.path: Optional[str] = path
         else:
             self.path = None
 
         if path_namespace:
             assert_object_path_valid(path_namespace)
-            self.path_namespace: str = path_namespace
+            self.path_namespace: Optional[str] = path_namespace
         else:
             self.path_namespace = None
 
@@ -111,13 +117,13 @@ class MatchRules:
 
         if destination:
             assert_bus_name_valid(destination)
-            self.destination: str = destination
+            self.destination: Optional[str] = destination
         else:
             self.destination = None
 
         if arg0namespace:
             assert_bus_name_valid(arg0namespace)
-            self.arg0namespace: str = arg0namespace
+            self.arg0namespace: Optional[str] = arg0namespace
         else:
             self.arg0namespace = None
 
@@ -132,7 +138,7 @@ class MatchRules:
                     assert_object_path_valid(v[:-1] if v.endswith("/") else v)
                 else:
                     raise ValueError("kwargs must be in the form 'arg0' or 'arg0path'")
-            self.args: Dict[str, str] = kwargs
+            self.args: Optional[dict[str, str]] = kwargs
         else:
             self.args = None
 
@@ -174,9 +180,9 @@ class MatchRules:
         return f"MatchRules({self})"
 
 
-def add_match(bus: MessageBus, rules: MatchRules) -> Coroutine[Any, Any, Message]:
+async def add_match(bus: MessageBus, rules: MatchRules) -> Message:
     """Calls org.freedesktop.DBus.AddMatch using ``rules``."""
-    return bus.call(
+    reply = await bus.call(
         Message(
             destination="org.freedesktop.DBus",
             interface="org.freedesktop.DBus",
@@ -187,10 +193,12 @@ def add_match(bus: MessageBus, rules: MatchRules) -> Coroutine[Any, Any, Message
         )
     )
 
+    return reply
 
-def remove_match(bus: MessageBus, rules: MatchRules) -> Coroutine[Any, Any, Message]:
+
+async def remove_match(bus: MessageBus, rules: MatchRules) -> Message:
     """Calls org.freedesktop.DBus.RemoveMatch using ``rules``."""
-    return bus.call(
+    reply = await bus.call(
         Message(
             destination="org.freedesktop.DBus",
             interface="org.freedesktop.DBus",
@@ -200,3 +208,5 @@ def remove_match(bus: MessageBus, rules: MatchRules) -> Coroutine[Any, Any, Mess
             body=[str(rules)],
         )
     )
+
+    return reply

@@ -9,7 +9,77 @@
 * 🚨 The Bluetooth connection is still not stable on some systems. If you want to have a stable connection use the serial connection.
 
 
-## v2.0.x
+## v2.1.x
+
+### Breaking Changes
+
+* Driver version greater or equal to `v2.1.20251222dev`
+  * The unique identifier for all Bluetooth BMS devices is now the BLE MAC address. Because of this change, your battery will appear as a new device after the update. Custom names and calculated data will be lost once during the upgrade.
+
+* Driver version greater or equal to `v2.1.20260105`
+  * Moved d-bus/MQTT path from `/Io/ForceChargingOff` to `/Settings/ForceChargingOff`
+  * Moved d-bus/MQTT path from `/Io/ForceDischargingOff` to `/Settings/ForceDischargingOff`
+  * Moved d-bus/MQTT path from `/Io/TurnBalancingOff` to `/Settings/TurnBalancingOff`
+  * Moved d-bus/MQTT path from `/Settings/ResetSoc` to `/Settings/ResetSocTo`
+
+### What's Changed
+
+* Added: aiobmsble library (https://github.com/patman15/aiobmsble), which adds a lot of Bluetooth batteries to Venus OS by @mr-manuel
+* Added: Daren 485 BMS - Read SoH with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/344 by @kopierschnitte
+* Added: dbus caching to reduce writes and therefore CPU consumption with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/397 by @cgoudie
+* Added: Disable serial starter if not needed by @mr-manuel
+* Added: Generic MQTT BMS by @mr-manuel
+* Added: Health check for batteries which are using the callback by @mr-manuel
+* Added: JBD CAN protocol support with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/363 by @dmitrych5
+* Added: JBD UP16S series support, including daisy-chaining, with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/375 by @dmitrych5
+* Added: JK Inverter BMS - Heating informations with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/367 by @BitSeb
+* Added: KS48100 BMS - Read SoH with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/344 by @kopierschnitte
+* Added: Prevent GUI modification installations by setting `GUI_INSTALL_CUSTOMIZATIONS` to `False` by @mr-manuel
+* Added: Set SOC manually via GUI if SOC_CALCULATION is enabled by @mr-manuel
+* Added: Venus OS 3.7x GUIv2 support by @mr-manuel
+* Changed: Added integer conversion for Daly Can BMS Set SOC GUI method by @lex2k0
+* Changed: Daly BMS & Daly CAN BMS: Fix inverting of alarms, when current is inverted. Fixes https://github.com/mr-manuel/venus-os_dbus-serialbattery/issues/378 by @mr-manuel
+* Changed: Daren 485 BMS - Fixed charge/discharge calculation with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/343 by @kopierschnitte
+* Changed: Disabled BMS SOC alerts if `SOC_CALCULATION` is enabled. Fixes https://github.com/mr-manuel/venus-os_dbus-serialbattery/issues/377 by @mr-manuel
+* Changed: Driver internals - Renamed callback variables/functions and added a better description by @mr-manuel
+* Changed: EG4-LL BMS - Added BMS configuration polling on startup to load cell/pack voltage, temperature, current, and SOC alarm thresholds from the BMS by @tuxntoast
+* Changed: EG4-LL BMS - Added CRC-16 checksum validation for all BMS reply frames by @tuxntoast
+* Changed: EG4-LL BMS - Added EG4AlarmManager class for threshold-based alarm evaluation with charge/discharge FET control by @tuxntoast
+* Changed: EG4-LL BMS - Fixed alarm state logger to reflect current protection values after dbus update, preventing stale Ok-Ok status in WARNING log events by @tuxntoast
+* Changed: EG4-LL BMS - Fixed CustomName to use zero-padded decimal bus address (e.g. `EG4-LL:01`, `EG4-LL:16`) for consistent labeling and correct device routing in Victron GUI by @tuxntoast
+* Changed: EG4-LL BMS - Fixed Protection class attribute names to match framework API (e.g. `high_voltage`, `low_cell_voltage`, `high_charge_temperature`) by @tuxntoast
+* Changed: EG4-LL BMS - Fixed unique identifier to append the BMS bus address integer to the serial number, ensuring uniqueness across daisy-chained units with similar serial numbers by @tuxntoast
+* Changed: EG4-LL BMS - Improved charge/discharge FET control so voltage and current alarms (over/under voltage, over current, short circuit) disable the FET on WARNING as well as PROTECTION, not only on PROTECTION by @tuxntoast
+* Changed: EG4-LL BMS - Improved serial port retry logic with automatic port recovery on SerialException by @tuxntoast
+* Changed: EG4-LL BMS - Improved startup log clarity by suppressing expected CH341 serial errors and retry messages to DEBUG level during the connection settling window by @tuxntoast
+* Changed: EG4-LL BMS - Improved USB-RS485 (CH341) connection reliability on startup by keeping the serial port open between retry attempts, adding a 60-second connection timeout loop, and disabling DTR/RTS hardware flow control to prevent adapter resets by @tuxntoast
+* Changed: Exit behavior for excluded devices to behave like Victron services by @mr-manuel
+* Changed: Fix dbus connection leak which fixes problems on systems which multiple batteries with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/402 by @cgoudie
+* Changed: Fix issue with published JsonData, where None values were published as empty strings by @mr-manuel
+* Changed: Fixed discharge current limit calculations when MOSFET temperature is not available, by @dmitrych5
+* Changed: Fixed problems with the `BLOCK_ON_DISCONNECT` behavior. Fixes https://github.com/mr-manuel/venus-os_dbus-serialbattery/issues/309 by @mr-manuel
+* Changed: Fixed typo in activation instructions by @mr-manuel
+* Changed: GUIv2: Add cell diff to mean and improve calculations to reduce CPU load. Fixes https://github.com/mr-manuel/venus-os_dbus-serialbattery/issues/360 by @mr-manuel
+* Changed: HLPDATA BMS - Fixed wrong charge/discharge fet assignment @mr-manuel
+* Changed: HLPDATA BMS - Fixed wrong charge/discharge fet assignment @mr-manuel
+* Changed: Improved BMS Cable Alarm Logic. Fixes https://github.com/mr-manuel/venus-os_dbus-serialbattery/issues/309 by @mr-manuel
+* Changed: JK Inverter BMS - Fixed serial number lenght by @mr-manuel
+* Changed: JKBMS BLE - Fixed negative temperature display. Fixes https://github.com/mr-manuel/venus-os_dbus-serialbattery/issues/369 by @mr-manuel
+* Changed: JKBMS CAN - Correct calculation of arbitration_id for device_address > 0. Fixes https://github.com/mr-manuel/venus-os_dbus-serialbattery/issues/288 with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/306 by @Hooorny
+* Changed: JKBMS PB: Alarms were not set correctly @mr-manuel
+* Changed: KS48100 BMS - Fixed charge/discharge calculation with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/343 by @kopierschnitte
+* Changed: LLT/JBD BLE BMS - Fixed wrong charge/discharge fet assignment @mr-manuel
+* CHanged: LLT/JBD BMS - Fixed issue with checksum missing bytes by @TheRealSbs
+* Changed: Made some dbus settings silent to not flood the localsettings service log by @mr-manuel
+* Changed: Mechanism to reset SOC via GUI, since it was not possible to set the same SOC twice by @mr-manuel
+* Changed: RV-C CAN BMS - Fixed wrong charge/discharge fet assignment @mr-manuel
+* Changed: Seplos BMS - Fix problems with unique identifier when daisy chained by @KoljaWindeler
+* Changed: UBMS CAN code style to snake_case, various improvements and fixes by @gimx
+* Changed: Use Bluetooth MAC address as unique identifier for all Bluetooth BMS by @mr-manuel
+* Changed: Use correct temperature sensors for Daly CAN BMS instead of min/max values by @lex2k0
+* Changed: Use port and address as unique identifier is now available for all serial BMS by @mr-manuel
+
+## v2.0.20250729
 
 ### Breaking Changes
 
@@ -54,10 +124,12 @@
   * Changes to `config.default.ini`: `TEMP_4_NAME` was replaced by `TEMPERATURE_4_NAME`
 
 ### What's Changed
+
 * Added: BLE - Config settings do enable/disable `BLUETOOTH_USE_POLLING` and `BLUETOOTH_FORCE_RESET_BLE_STACK` by @mr-manuel
 * Added: BLE - Error message if BLE `BMS_TYPE` was misspelled by @mr-manuel
 * Added: BLE - Error message if BLE address is missing by @mr-manuel
 * Added: Calculation of history values not provided by the battery by @mr-manuel
+* Added: Charge Voltage Limit mode - Clipped sum controller by @mr-manuel
 * Added: Charge/Discharge current limitation by MOSFET temperature by @mr-manuel
 * Added: Daly CAN - Read capacity with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/217 from @atillack
 * Added: Error handling for `config.ini` by @mr-manuel
@@ -65,6 +137,7 @@
 * Added: Felicity BMS by @versager
 * Added: GUIv2 - New page where you see all important data in one place for easy troubleshooting by @mr-manuel
 * Added: JKBMS CAN - Extended protocol with version V2 by @Hooorny and @mr-manuel
+* Added: JKBMS PB - Status of balancer switch with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/286 by @KoljaWindeler
 * Added: Kilovault HLX+ BMS by @alexphredorg
 * Added: KS48100 (PAPool, Bemory, CERRNSS, VoltPolska, ...) BMS with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/168 by @JoshuaDodds
 * Added: LiTime BMS by @calledit
@@ -75,6 +148,7 @@
 * Added: RV-C House Battery by @rogergrant99
 * Added: Show BMS cable fault warning, if the BMS is not reachable anymore by @mr-manuel
 * Added: Show CVL also on cell voltage base by @mr-manuel
+* Added: Show if deprecated or invalid config options are used in the config.ini by @mr-manuel
 * Added: Signal handler for clean service restart/shutdown by @mr-manuel
 * Added: UBMS CAN - support for Valence U-BMS by @gimx
 * Added: Venus OS image type to startup log by @mr-manuel
@@ -82,16 +156,19 @@
 * Changed: Apply `SOC_RESET_CELL_VOLTAGE` after `SOC_RESET_AFTER_DAYS` regardless of whether the battery is in absorption, bulk, or float mode https://github.com/mr-manuel/venus-os_dbus-serialbattery/issues/123 by @mr-manuel
 * Changed: BLE - Reworked installation for external Bluetooth USB dongle by @Felixrising & @mr-manuel
 * Changed: BLE - Reworked log notifications be more helpful by @mr-manuel
+* Changed: Charge Voltage Limit: Once the voltage is reduced slowly recover the voltage instead of jumping to the max voltage, this makes charging smoother on cell overvoltage by @mr-manuel
 * Changed: Check /data/apps path for required free space instead of /data. This allows /data/apps to be mounted on another media by @mr-manuel
 * Changed: Consumed capacity must be negative values by @mr-manuel
 * Changed: Daly CAN - Driver improvements by @transistorgit
 * Changed: Daly CAN - Refactored driver to match new CAN standard by @mr-manuel and @transistorgit
 * Changed: Dependencies are now shipped with the driver and not downloaded anymore which allows a complete offline installation by @mr-manuel
+* Changed: Do not set `Allow to balance` to `False` if unavailable by @mr-manuel
 * Changed: Driver was moved from `/data/etc/dbus-serialbattery` to `/data/apps/dbus-serialbattery` by @mr-manuel
 * Changed: EG4 LifePower - Fixed wrong cell voltage decoding. Fixes https://github.com/mr-manuel/venus-os_dbus-serialbattery/issues/155 by @dchiquito
 * Changed: Fix `/Info/BatteryLowVoltage` remaining `None` https://github.com/mr-manuel/venus-os_dbus-serialbattery/issues/145 by @mr-manuel
 * Changed: Fix double manipulation by `VOLTAGE_DROP` by @mr-manuel
 * Changed: Fix missing charge/discharge fet status for EG4 LifePower, EG4 LL and Renogy. Fixes https://github.com/mr-manuel/venus-os_dbus-serialbattery/issues/129 by @mr-manuel
+* Changed: Fixed driver starting issue when config.ini has no option by @mr-manuel
 * Changed: Fixed issue, when calculated SOC is restored from dbus and BMS SOC is 0 by @mr-manuel
 * Changed: Fixed issues when battery connection is lost by @mr-manuel
 * Changed: Fixed Seplos V3 cell balance status with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/213 by @marcelrv
@@ -102,10 +179,15 @@
 * Changed: Improved driver and `config.default.ini` descriptions by @mr-manuel
 * Changed: Improved handling when battery connection is lost by @mr-manuel
 * Changed: Improved some error messages for better understanding by @mr-manuel
+* Changed: Increased the minimum needed disk space from 30 MB to 70 MB by @mr-manuel
 * Changed: JKBMS BLE - Reworked code by @mr-manuel
 * Changed: JKBMS CAN - Per default only address 0 is recognized. Change `BATTERY_ADDRESS` to match your device address by @Hooorny and @mr-manuel
+* CHanged: JKBMS PB - Fixed incorrect offsets with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/283 by @gizmocuz
+* CHanged: JKBMS PB - Fixed serial number reading with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/270 by @marcelrv
 * Changed: Licensing from MIT license to GNU AGPLv3 license by @mr-manuel
 * Changed: LLT/JBD BLE - Fixed initial connection by @mr-manuel
+* Changed: Precision of voltage sum from 3 decimals to 2 decimals by @mr-manuel
+* Changed: Rebuild custom GUI install process by @mr-manuel
 * Changed: Refactored driver installation via USB/SD card by @mr-manuel
 * Changed: Renamed `install-qml.sh` to `custom-gui-install.sh` by @mr-manuel
 * Changed: Renamed `reinstall-local.sh` to `enable.sh` by @mr-manuel
@@ -136,6 +218,7 @@
 * Changed: The setting `TEMP_4_NAME` was replaced by `TEMPERATURE_4_NAME` in the `config.default.ini` by @mr-manuel
 * Changed: The setting `TEMP_BATTERY` was replaced by `TEMPERATURE_SOURCE_BATTERY` in the `config.default.ini` by @mr-manuel
 * Changed: The setting `TEMPERATURE_SOURCE_BATTERY` is now a list of temperature sensors, so you can choose which sensors you want to use by @mr-manuel
+* Changed: Tian Power BMS: Fixed command info request with https://github.com/mr-manuel/venus-os_dbus-serialbattery/pull/274 by @Shahar-Ariel
 * Changed: Use corrected current for both normal current and SOC calculation if `SOC_CALCULATION` is enabled by @mr-manuel
 * Changed: When `SOC_CALCULATION` is enabled, the SoC is reset to 100%, if the battery switches to float. Old options were removed by @mr-manuel
 * Removed: BLE - Duplicated not found message by @mr-manuel

@@ -5,16 +5,17 @@ import configparser
 import logging
 import sys
 from pathlib import Path
-from struct import unpack_from
+from struct import Struct, unpack_from
 from time import sleep
-from typing import List, Any, Callable, Union
+from typing import List, Any, Callable, Optional, Union
 
 # Third-party imports
 import serial
+import time
 
 
 # CONSTANTS
-DRIVER_VERSION: str = "2.0.20250518dev"
+DRIVER_VERSION: str = "2.1.20260315dev"
 """
 current version of the driver
 """
@@ -73,6 +74,31 @@ logger.setLevel(LOGGING_LEVELS.get(config["DEFAULT"].get("LOGGING").upper()))
 # This is needed else the errors are not instantly visible
 errors_in_config = []
 
+# Check if there are any options in the custom config file that are not in the default config file
+default_config = configparser.ConfigParser()
+custom_config = configparser.ConfigParser()
+# Ensure that option names are treated as case-sensitive
+default_config.optionxform = str
+custom_config.optionxform = str
+# Read the default and custom config files
+default_config.read(default_config_file_path)
+custom_config.read(custom_config_file_path)
+
+for section in custom_config.sections() + ["DEFAULT"]:
+    if section not in default_config.sections() + ["DEFAULT"]:
+        errors_in_config.append(f'Section "{section}" in config.ini is not valid.')
+    else:
+        for option in custom_config[section]:
+            if option not in default_config[section]:
+                errors_in_config.append(f'Option "{option}" in config.ini is not valid.')
+
+# Free up memory
+del default_config, custom_config, section
+
+# Check if option variable was set and if yes, free it
+if "option" in locals():
+    del option
+
 
 # --------- Helper Functions ---------
 def get_bool_from_config(group: str, option: str) -> bool:
@@ -100,7 +126,7 @@ def get_float_from_config(group: str, option: str, default_value: float = 0) -> 
     try:
         return float(value)
     except ValueError:
-        errors_in_config.append(f"**CONFIG ISSUE**: Invalid value '{value}' for option '{option}' in group '{group}'.")
+        errors_in_config.append(f"Invalid value '{value}' for option '{option}' in group '{group}'.")
         return default_value
 
 
@@ -118,7 +144,7 @@ def get_int_from_config(group: str, option: str, default_value: int = 0) -> int:
     try:
         return int(value)
     except ValueError:
-        errors_in_config.append(f"**CONFIG ISSUE**: Invalid value '{value}' for option '{option}' in group '{group}'.")
+        errors_in_config.append(f"Invalid value '{value}' for option '{option}' in group '{group}'.")
         return default_value
 
 
@@ -136,10 +162,10 @@ def get_list_from_config(group: str, option: str, mapper: Callable[[Any], Any] =
         return [mapper(item.strip()) for item in raw_list if item.strip()]
     except KeyError:
         logger.error(f"Missing config option '{option}' in group '{group}'")
-        errors_in_config.append(f"**CONFIG ISSUE**: Missing config option '{option}' in group '{group}'")
+        errors_in_config.append(f"Missing config option '{option}' in group '{group}'")
         return []
     except ValueError:
-        errors_in_config.append(f"**CONFIG ISSUE**: Invalid value '{mapper}' for option '{option}' in group '{group}'.")
+        errors_in_config.append(f"Invalid value '{mapper}' for option '{option}' in group '{group}'.")
         return []
 
 
@@ -151,7 +177,7 @@ def check_config_issue(condition: bool, message: str):
     :param message: The message to append if the condition is True
     """
     if condition:
-        errors_in_config.append(f"**CONFIG ISSUE**: {message}")
+        errors_in_config.append(f"{message}")
 
 
 # SAVE CONFIG VALUES to constants
@@ -237,7 +263,7 @@ BATTERY_ADDRESSES: list = get_list_from_config("DEFAULT", "BATTERY_ADDRESSES", s
 
 # --------- BMS Disconnect Behavior ---------
 BLOCK_ON_DISCONNECT: bool = get_bool_from_config("DEFAULT", "BLOCK_ON_DISCONNECT")
-BLOCK_ON_DISCONNECT_TIMEOUT_MINUTES: float = get_float_from_config("DEFAULT", "BLOCK_ON_DISCONNECT_TIMEOUT_MINUTES")
+BLOCK_ON_DISCONNECT_TIMEOUT_MINUTES: int = get_int_from_config("DEFAULT", "BLOCK_ON_DISCONNECT_TIMEOUT_MINUTES")
 BLOCK_ON_DISCONNECT_VOLTAGE_MIN: float = get_float_from_config("DEFAULT", "BLOCK_ON_DISCONNECT_VOLTAGE_MIN")
 BLOCK_ON_DISCONNECT_VOLTAGE_MAX: float = get_float_from_config("DEFAULT", "BLOCK_ON_DISCONNECT_VOLTAGE_MAX")
 
@@ -267,6 +293,10 @@ if not BLOCK_ON_DISCONNECT:
             "For safety reasons BLOCK_ON_DISCONNECT was set to True. Please check the configuration.",
         )
         BLOCK_ON_DISCONNECT = True
+
+
+# --------- BMS Cable Alarm ---------
+BMS_CABLE_ALARM: bool = get_bool_from_config("DEFAULT", "BMS_CABLE_ALARM")
 
 
 # --------- External Sensor for Current and/or SoC ---------
@@ -515,6 +545,9 @@ USE_BMS_DVCC_VALUES: bool = get_bool_from_config("DEFAULT", "USE_BMS_DVCC_VALUES
 SOC_LOW_WARNING: float = get_float_from_config("DEFAULT", "SOC_LOW_WARNING")
 SOC_LOW_ALARM: float = get_float_from_config("DEFAULT", "SOC_LOW_ALARM")
 
+# -- LltJbd_Up16s settings
+UP16S_REQUIRE_DIRECT_CONNECTION: bool = get_bool_from_config("DEFAULT", "UP16S_REQUIRE_DIRECT_CONNECTION")
+
 # -- Daly settings
 INVERT_CURRENT_MEASUREMENT: int = get_int_from_config("DEFAULT", "INVERT_CURRENT_MEASUREMENT")
 
@@ -527,6 +560,17 @@ LIPRO_CELL_COUNT: int = get_int_from_config("DEFAULT", "LIPRO_CELL_COUNT")
 # -- UBMS settings
 UBMS_CAN_MODULE_SERIES: int = get_int_from_config("DEFAULT", "UBMS_CAN_MODULE_SERIES")
 UBMS_CAN_MODULE_PARALLEL: int = get_int_from_config("DEFAULT", "UBMS_CAN_MODULE_PARALLEL")
+
+
+# --- MQTT battery instance settings
+MQTT_TOPIC: list = get_list_from_config("DEFAULT", "MQTT_TOPIC", str)
+MQTT_BROKER_ADDRESS: str = config["DEFAULT"]["MQTT_BROKER_ADDRESS"]
+MQTT_BROKER_PORT: int = get_int_from_config("DEFAULT", "MQTT_BROKER_PORT")
+MQTT_TLS_ENABLED: bool = get_bool_from_config("DEFAULT", "MQTT_TLS_ENABLED")
+MQTT_TLS_PATH_TO_CA: str = config["DEFAULT"]["MQTT_TLS_PATH_TO_CA"]
+MQTT_TLS_INSECURE: bool = get_bool_from_config("DEFAULT", "MQTT_TLS_INSECURE")
+MQTT_USERNAME: str = config["DEFAULT"]["MQTT_USERNAME"]
+MQTT_PASSWORD: str = config["DEFAULT"]["MQTT_PASSWORD"]
 
 
 # FUNCTIONS
@@ -661,8 +705,8 @@ def get_connection_error_message(battery_online: bool, suffix: str = None) -> No
     It returns True if the connection is successful, otherwise False.
     It also handles the error logging if the connection is lost.
 
-    :battery_online: Boolean indicating if the battery is online
-    :suffix: Optional suffix to add to the error message
+    :parambattery_online: Boolean indicating if the battery is online
+    :param suffix: Optional suffix to add to the error message
     :return: True if the connection is successful, otherwise False
     """
     if battery_online is None:
@@ -672,6 +716,17 @@ def get_connection_error_message(battery_online: bool, suffix: str = None) -> No
     if battery_online:
         logger.error(">>> No response from battery. Connection lost or battery not recognized. Check cabeling!" + (" " + suffix if suffix else ""))
         return
+
+
+def generate_unique_identifier(port: str, address) -> str:
+    """
+    Generate a unique identifier for the battery based on the port and address.
+
+    :param port: Serial port
+    :param address: Battery address
+    :return: Unique identifier
+    """
+    return str(port).replace("/dev/", "") + "__" + (bytearray_to_string(address).replace("\\", "0") if address is not None else "0x01")
 
 
 def open_serial_port(port: str, baud: int) -> Union[serial.Serial, None]:
@@ -694,6 +749,69 @@ def open_serial_port(port: str, baud: int) -> Union[serial.Serial, None]:
 
 def read_serialport_data(
     ser: serial.Serial,
+    request: bytearray,
+    timeout_seconds: float,
+    extra_length: int,
+    payload_length_pos: int,
+    payload_length_size: str = "B",
+    length_fixed: Optional[int] = None,
+) -> Optional[bytearray]:
+    """
+    Serial port read helper that fixes some shortcomings of read_serialport_data_deprecated() and is more reliable.
+
+    :param ser: Serial port
+    :param request: Data to send
+    :param timeout_seconds: Maximum time to wait for data
+    :param extra_length: Length of everything else that's not counted in the payload length value contained at payload_length_pos. For example it's
+      most likely the checksum and the header including the payload length field itself.
+    :param payload_length_pos: Position of the payload length field in the packet
+    :param payload_length_size: Size of the payload length field, e.g. "B", "H", "I", "L"
+    :param length_fixed: Total fixed length of the data to read. If set, all other length arguments are ignored. If not set, length will be read from the data
+    :return: Data read from the serial port or None on error
+    """
+
+    try:
+        ser.reset_input_buffer()
+        ser.write(request)
+
+        length_struct = Struct(">" + payload_length_size)
+        if length_fixed is None:
+            bytes_needed = payload_length_pos + length_struct.size
+            payload_length = None
+        else:
+            bytes_needed = length_fixed
+            payload_length = length_fixed
+
+        data = bytearray()
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            chunk = ser.read(max(1, ser.in_waiting))
+            if chunk:
+                data.extend(chunk)
+
+            # Parse length once we have enough bytes
+            if payload_length is None and len(data) >= bytes_needed:
+                payload_length = length_struct.unpack_from(data, payload_length_pos)[0]
+                # Update bytes needed for the complete message
+                bytes_needed = payload_length + extra_length
+
+            # Check if we have the complete message
+            if payload_length is not None and len(data) >= bytes_needed:
+                return data
+
+            # Sleep to prevent busy-waiting
+            sleep(0.01)
+
+        # Timeout occurred
+        return None
+
+    except Exception:
+        logger.exception("read_serialport_data exception")
+        return None
+
+
+def read_serialport_data_deprecated(
+    ser: serial.Serial,
     command: bytearray,
     length_pos: int,
     length_check: int,
@@ -702,7 +820,7 @@ def read_serialport_data(
     battery_online: bool = True,
 ) -> bytearray:
     """
-    Read data from a serial port
+    Read data from a serial port. Deprecated, use read_serialport_data() instead.
 
     :param ser: Serial port
     :param command: Command to send
@@ -804,7 +922,7 @@ def read_serial_data(
     ser = None  # Initialize ser to None
     try:
         with serial.Serial(port, baudrate=baud, timeout=0.1) as ser:
-            return read_serialport_data(ser, command, length_pos, length_check, length_fixed, length_size, battery_online)
+            return read_serialport_data_deprecated(ser, command, length_pos, length_check, length_fixed, length_size, battery_online)
 
     except serial.SerialException as e:
         logger.error(e)
@@ -847,12 +965,23 @@ def validate_config_values() -> bool:
 
     :return: True if there are no errors else False
     """
+    # Add empty line for better readability
+    if len(errors_in_config) > 0:
+        logger.error("")
+        logger.error("*** CONFIG ISSUES DETECTED ***")
+
     # loop through all errors and log them
     for error in errors_in_config:
-        logger.error(error)
+        logger.error("- " + error)
 
     # return True if there are no errors
-    return len(errors_in_config) == 0
+    if len(errors_in_config) == 0:
+        return True
+    else:
+        logger.error("The driver may not behave as expected due to the above issues.")
+        logger.error(">>> Please check the CHANGELOG.md for option changes and the config.default.ini for all available options!")
+        logger.error("")
+        return False
 
 
 def publish_config_variables(dbusservice) -> None:

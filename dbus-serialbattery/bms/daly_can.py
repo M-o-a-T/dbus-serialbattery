@@ -10,8 +10,9 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 from battery import Battery, Cell
 from utils import (
     BATTERY_CAPACITY,
-    bytearray_to_string,
+    SOC_CALCULATION,
     get_connection_error_message,
+    generate_unique_identifier,
     INVERT_CURRENT_MEASUREMENT,
     logger,
     AUTO_RESET_SOC,
@@ -40,7 +41,7 @@ class Daly_Can(Battery):
         self.poll_step = 0
         self.type = self.BATTERYTYPE
         self.has_settings = True
-        self.reset_soc = 0
+        self.soc_reset_to = 0
         self.soc_to_set = None
         self.last_charge_mode = self.charge_mode
 
@@ -48,6 +49,11 @@ class Daly_Can(Battery):
         self.device_address = int.from_bytes(address, byteorder="big") if address is not None else 0x01
         self.error_active = False
         self.last_error_time = 0
+        # list of available callbacks, in order to display the buttons in the GUI
+        self.callbacks_available = [
+            "callback_soc_reset_to",
+        ]
+
         self.history.exclude_values_to_calculate = ["charge_cycles"]
 
     COMMAND_BASE = "COMMAND_BASE"
@@ -116,7 +122,7 @@ class Daly_Can(Battery):
         e.g. the serial number
         If there is no such value, please remove this function
         """
-        return self.port + ("__" + bytearray_to_string(self.address).replace("\\", "0") if self.address is not None else "")
+        return generate_unique_identifier(self.port, self.address)
 
     def test_connection(self):
         """
@@ -168,7 +174,7 @@ class Daly_Can(Battery):
         # call all functions that will refresh the battery data.
         # This will be called for every iteration (1 second)
         # Return True if success, False for failure
-        self.reset_soc = self.soc if self.soc else 0
+        self.soc_reset_to = self.soc if self.soc else 0
 
         self.request_daly_can()
         sleep(0.1)
@@ -191,17 +197,17 @@ class Daly_Can(Battery):
             self.can_transport_interface.can_bus.send(message, timeout=0.2)
             message = Message(arbitration_id=(self.CAN_FRAMES[self.COMMAND_MINMAX_CELL_VOLTS][0] & 0xFFFF00FF) | (self.device_address << 8), data=data)
             self.can_transport_interface.can_bus.send(message, timeout=0.2)
-            message = Message(arbitration_id=(self.CAN_FRAMES[self.COMMAND_MINMAX_TEMP][0] & 0xFFFF00FF) | (self.device_address << 8), data=data)
-            self.can_transport_interface.can_bus.send(message, timeout=0.2)
+            # Unused due to COMMAND_TEMP
+            # message = Message(arbitration_id=(self.CAN_FRAMES[self.COMMAND_MINMAX_TEMP][0] & 0xFFFF00FF) | (self.device_address << 8), data=data)
+            # self.can_transport_interface.can_bus.send(message, timeout=0.2)
             message = Message(arbitration_id=(self.CAN_FRAMES[self.COMMAND_FET][0] & 0xFFFF00FF) | (self.device_address << 8), data=data)
             self.can_transport_interface.can_bus.send(message, timeout=0.2)
             message = Message(arbitration_id=(self.CAN_FRAMES[self.COMMAND_STATUS][0] & 0xFFFF00FF) | (self.device_address << 8), data=data)
             self.can_transport_interface.can_bus.send(message, timeout=0.2)
             message = Message(arbitration_id=(self.CAN_FRAMES[self.COMMAND_CELL_VOLTS][0] & 0xFFFF00FF) | (self.device_address << 8), data=data)
             self.can_transport_interface.can_bus.send(message, timeout=0.2)
-            # unused
-            # message = Message(arbitration_id=(self.CAN_FRAMES[self.COMMAND_TEMP][0] & 0xffff00ff) | (self.device_address << 8), data=data)
-            # self.can_transport_interface.can_bus.send(message, timeout=0.2)
+            message = Message(arbitration_id=(self.CAN_FRAMES[self.COMMAND_TEMP][0] & 0xFFFF00FF) | (self.device_address << 8), data=data)
+            self.can_transport_interface.can_bus.send(message, timeout=0.2)
             message = Message(arbitration_id=(self.CAN_FRAMES[self.COMMAND_CELL_BALANCE][0] & 0xFFFF00FF) | (self.device_address << 8), data=data)
             self.can_transport_interface.can_bus.send(message, timeout=0.2)
             message = Message(arbitration_id=(self.CAN_FRAMES[self.COMMAND_ALARM][0] & 0xFFFF00FF) | (self.device_address << 8), data=data)
@@ -232,7 +238,7 @@ class Daly_Can(Battery):
                 if normalized_arbitration_id in self.CAN_FRAMES[self.RESPONSE_STATUS]:
                     (
                         self.cell_count,
-                        temperature_sensors,
+                        self.temperature_sensors_count,
                         self.charger_connected,
                         self.load_connected,
                         state,
@@ -303,16 +309,30 @@ class Daly_Can(Battery):
                     self.cell_max_voltage = cell_max_voltage / 1000
                     self.cell_min_voltage = cell_min_voltage / 1000
 
+                # Temperature min/max data
+                # elif normalized_arbitration_id in self.CAN_FRAMES[self.RESPONSE_MINMAX_TEMP]:
+
+                # max_temp, max_no, min_temp, min_no = unpack_from(">BBBB", data)
+
+                # store temperatures in a dict to assign the temperature to the correct sensor
+                # temperatures = {min_no: (min_temp - self.TEMP_ZERO_CONSTANT), max_no: (max_temp - self.TEMP_ZERO_CONSTANT)}
+
+                # Inactive due to correct temperature values in next elif
+                # self.to_temperature(1, temperatures[min_no])
+                # self.to_temperature(2, temperatures[max_no])
+
                 # Temperature range data
-                elif normalized_arbitration_id in self.CAN_FRAMES[self.RESPONSE_MINMAX_TEMP]:
+                elif normalized_arbitration_id in self.CAN_FRAMES[self.RESPONSE_TEMP]:
 
-                    max_temp, max_no, min_temp, min_no = unpack_from(">BBBB", data)
+                    frameNr, t1, t2, t3, t4, t5, t6, t7 = unpack_from(">BBBBBBBB", data)
 
-                    # store temperatures in a dict to assign the temperature to the correct sensor
-                    temperatures = {min_no: (min_temp - self.TEMP_ZERO_CONSTANT), max_no: (max_temp - self.TEMP_ZERO_CONSTANT)}
+                    if frameNr == 1:
+                        raw_temps = [t1, t2, t3, t4, t5, t6, t7]
 
-                    self.to_temperature(1, temperatures[min_no])
-                    self.to_temperature(2, temperatures[max_no])
+                        count = getattr(self, "temperature_sensors_count", 4)
+
+                        for i in range(count):
+                            self.to_temperature(i + 1, raw_temps[i] - self.TEMP_ZERO_CONSTANT)
 
                 # FET data
                 elif normalized_arbitration_id in self.CAN_FRAMES[self.RESPONSE_FET]:
@@ -366,75 +386,91 @@ class Daly_Can(Battery):
 
                     if al_temp & 2:
                         # High charge temp - Alarm
-                        self.protection.high_charge_temperature = 2
+                        high_charge_temperature = 2
                     elif al_temp & 1:
                         # High charge temp - Pre-alarm
-                        self.protection.high_charge_temperature = 1
+                        high_charge_temperature = 1
                     else:
-                        self.protection.high_charge_temperature = 0
+                        high_charge_temperature = 0
 
                     if al_temp & 8:
                         # Low charge temp - Alarm
-                        self.protection.low_charge_temperature = 2
+                        low_charge_temperature = 2
                     elif al_temp & 4:
                         # Low charge temp - Pre-alarm
-                        self.protection.low_charge_temperature = 1
+                        low_charge_temperature = 1
                     else:
-                        self.protection.low_charge_temperature = 0
+                        low_charge_temperature = 0
 
                     if al_temp & 32:
                         # High discharge temp - Alarm
-                        self.protection.high_temperature = 2
+                        high_discharge_temperature = 2
                     elif al_temp & 16:
                         # High discharge temp - Pre-alarm
-                        self.protection.high_temperature = 1
+                        high_discharge_temperature = 1
                     else:
-                        self.protection.high_temperature = 0
+                        high_discharge_temperature = 0
 
                     if al_temp & 128:
                         # Low discharge temp - Alarm
-                        self.protection.low_temperature = 2
+                        low_discharge_temperature = 2
                     elif al_temp & 64:
                         # Low discharge temp - Pre-alarm
-                        self.protection.low_temperature = 1
+                        low_discharge_temperature = 1
                     else:
-                        self.protection.low_temperature = 0
+                        low_discharge_temperature = 0
 
-                    # if al_crnt_soc & 2:
-                    #    # High charge current - Alarm
-                    #    self.protection.high_charge_current = 2
-                    # elif al_crnt_soc & 1:
-                    #    # High charge current - Pre-alarm
-                    #    self.protection.high_charge_current = 1
+                    if al_crnt_soc & 2:
+                        # High charge current - Alarm
+                        high_charge_current = 2
+                    elif al_crnt_soc & 1:
+                        # High charge current - Pre-alarm
+                        high_charge_current = 1
+                    else:
+                        high_charge_current = 0
+
+                    if al_crnt_soc & 8:
+                        # High discharge current - Alarm
+                        high_discharge_current = 2
+                    elif al_crnt_soc & 4:
+                        # High discharge current - Pre-alarm
+                        high_discharge_current = 1
+                    else:
+                        high_discharge_current = 0
+
+                    # if al_crnt_soc & 2 or al_crnt_soc & 8:
+                    #     # High charge/discharge current - Alarm
+                    #     high_charge_current = 2
+                    # elif al_crnt_soc & 1 or al_crnt_soc & 4:
+                    #     # High charge/discharge current - Pre-alarm
+                    #     high_charge_current = 1
                     # else:
-                    #    self.protection.high_charge_current = 0
+                    #     high_charge_current = 0
 
-                    # if al_crnt_soc & 8:
-                    #    # High discharge current - Alarm
-                    #    self.protection.high_charge_current = 2
-                    # elif al_crnt_soc & 4:
-                    #    # High discharge current - Pre-alarm
-                    #    self.protection.high_charge_current = 1
-                    # else:
-                    #    self.protection.high_charge_current = 0
-
-                    if al_crnt_soc & 2 or al_crnt_soc & 8:
-                        # High charge/discharge current - Alarm
-                        self.protection.high_charge_current = 2
-                    elif al_crnt_soc & 1 or al_crnt_soc & 4:
-                        # High charge/discharge current - Pre-alarm
-                        self.protection.high_charge_current = 1
+                    if INVERT_CURRENT_MEASUREMENT > 0:
+                        self.protection.high_charge_temperature = high_charge_temperature
+                        self.protection.low_charge_temperature = low_charge_temperature
+                        self.protection.high_temperature = high_discharge_temperature
+                        self.protection.low_temperature = low_discharge_temperature
+                        self.protection.high_charge_current = high_charge_current
+                        self.protection.high_discharge_current = high_discharge_current
                     else:
-                        self.protection.high_charge_current = 0
+                        self.protection.high_charge_temperature = high_discharge_temperature
+                        self.protection.low_charge_temperature = low_discharge_temperature
+                        self.protection.high_temperature = high_charge_temperature
+                        self.protection.low_temperature = low_charge_temperature
+                        self.protection.high_charge_current = high_discharge_current
+                        self.protection.high_discharge_current = high_charge_current
 
-                    if al_crnt_soc & 128:
-                        # Low SoC - Alarm
-                        self.protection.low_soc = 2
-                    elif al_crnt_soc & 64:
-                        # Low SoC Warning level - Pre-alarm
-                        self.protection.low_soc = 1
-                    else:
-                        self.protection.low_soc = 0
+                    if not SOC_CALCULATION:
+                        if al_crnt_soc & 128:
+                            # Low SoC - Alarm
+                            self.protection.low_soc = 2
+                        elif al_crnt_soc & 64:
+                            # Low SoC Warning level - Pre-alarm
+                            self.protection.low_soc = 1
+                        else:
+                            self.protection.low_soc = 0
 
             self.hardware_version = "Daly CAN " + str(self.cell_count) + "S"
 
@@ -473,14 +509,14 @@ class Daly_Can(Battery):
             logger.error(f"Exception occurred: {repr(exception_object)} of type {exception_type} in {file} line #{line}")
             return False
 
-    def reset_soc_callback(self, path, value):
+    def callback_soc_reset_to(self, path, value):
         if value is None:
             return False
 
         if value < 0 or value > 100:
             return False
 
-        self.reset_soc = value
+        self.soc_reset_to = value
         self.soc_to_set = value
         return True
 
@@ -489,7 +525,7 @@ class Daly_Can(Battery):
             return False
 
         data = bytearray(8)
-        pack_into(">Hxxxxxx", data, 0, self.soc_to_set * 10)
+        pack_into(">Hxxxxxx", data, 0, int(self.soc_to_set * 10))
 
         message = Message(arbitration_id=(0x161E0080 | (self.device_address << 8)), data=data)
         self.can_transport_interface.can_bus.send(message, timeout=0.2)

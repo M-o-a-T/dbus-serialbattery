@@ -1,27 +1,15 @@
 import abc
 import asyncio
 import inspect
-import os
-import platform
-from typing import (
-    Any,
-    Callable,
-    Coroutine,
-    Dict,
-    Hashable,
-    List,
-    NamedTuple,
-    Optional,
-    Set,
-    Tuple,
-    Type,
-)
+from collections.abc import Callable, Coroutine, Hashable
+from typing import Any, NamedTuple, Optional
 
-from ..exc import BleakError
-from .device import BLEDevice
+from bleak.backends import BleakBackend, get_default_backend
+from bleak.backends.device import BLEDevice
+from bleak.exc import BleakError
 
 # prevent tasks from being garbage collected
-_background_tasks: Set[asyncio.Task] = set()
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 class AdvertisementData(NamedTuple):
@@ -34,7 +22,7 @@ class AdvertisementData(NamedTuple):
     The local name of the device or ``None`` if not included in advertising data.
     """
 
-    manufacturer_data: Dict[int, bytes]
+    manufacturer_data: dict[int, bytes]
     """
     Dictionary of manufacturer data in bytes from the received advertisement data or empty dict if not present.
 
@@ -43,12 +31,12 @@ class AdvertisementData(NamedTuple):
     https://www.bluetooth.com/specifications/assigned-numbers/company-identifiers/
     """
 
-    service_data: Dict[str, bytes]
+    service_data: dict[str, bytes]
     """
     Dictionary of service data from the received advertisement data or empty dict if not present.
     """
 
-    service_uuids: List[str]
+    service_uuids: list[str]
     """
     List of service UUIDs from the received advertisement data or empty list if not present.
     """
@@ -67,7 +55,7 @@ class AdvertisementData(NamedTuple):
     .. versionadded:: 0.19
     """
 
-    platform_data: Tuple
+    platform_data: tuple[Any, ...]
     """
     Tuple of platform specific data.
 
@@ -75,7 +63,7 @@ class AdvertisementData(NamedTuple):
     """
 
     def __repr__(self) -> str:
-        kwargs = []
+        kwargs: list[str] = []
         if self.local_name:
             kwargs.append(f"local_name={repr(self.local_name)}")
         if self.manufacturer_data:
@@ -122,9 +110,11 @@ class BaseBleakScanner(abc.ABC):
             containing this advertising data will be received.
     """
 
-    seen_devices: Dict[str, Tuple[BLEDevice, AdvertisementData]]
+    seen_devices: dict[str, tuple[BLEDevice, AdvertisementData]]
     """
     Map of device identifier to BLEDevice and most recent advertisement data.
+
+    The key is a backend-specific identifier for the device.
 
     This map must be cleared when scanning starts.
     """
@@ -132,11 +122,9 @@ class BaseBleakScanner(abc.ABC):
     def __init__(
         self,
         detection_callback: Optional[AdvertisementDataCallback],
-        service_uuids: Optional[List[str]],
+        service_uuids: Optional[list[str]],
     ):
-        super(BaseBleakScanner, self).__init__()
-
-        self._ad_callbacks: Dict[
+        self._ad_callbacks: dict[
             Hashable, Callable[[BLEDevice, AdvertisementData], None]
         ] = {}
         """
@@ -146,7 +134,7 @@ class BaseBleakScanner(abc.ABC):
         if detection_callback is not None:
             self.register_detection_callback(detection_callback)
 
-        self._service_uuids: Optional[List[str]] = (
+        self._service_uuids: Optional[list[str]] = (
             [u.lower() for u in service_uuids] if service_uuids is not None else None
         )
 
@@ -186,7 +174,7 @@ class BaseBleakScanner(abc.ABC):
                 task.add_done_callback(_background_tasks.discard)
 
         else:
-            detection_callback = callback
+            detection_callback = callback  # type: ignore
 
         token = object()
 
@@ -197,7 +185,7 @@ class BaseBleakScanner(abc.ABC):
 
         return remove
 
-    def is_allowed_uuid(self, service_uuids: Optional[List[str]]) -> bool:
+    def is_allowed_uuid(self, service_uuids: Optional[list[str]]) -> bool:
         """
         Check if the advertisement data contains any of the service UUIDs
         matching the filter. If no filter is set, this will always return
@@ -247,12 +235,18 @@ class BaseBleakScanner(abc.ABC):
             callback(device, advertisement_data)
 
     def create_or_update_device(
-        self, address: str, name: str, details: Any, adv: AdvertisementData
+        self,
+        key: str,
+        address: str,
+        name: Optional[str],
+        details: Any,
+        adv: AdvertisementData,
     ) -> BLEDevice:
         """
         Creates or updates a device in :attr:`seen_devices`.
 
         Args:
+            key: A backend-specific identifier for the device.
             address: The Bluetooth address of the device (UUID on macOS).
             name: The OS display name for the device.
             details: The platform-specific handle for the device.
@@ -262,28 +256,14 @@ class BaseBleakScanner(abc.ABC):
             The updated device.
         """
 
-        # for backwards compatibility, see https://github.com/hbldh/bleak/issues/1025
-        metadata = dict(
-            uuids=adv.service_uuids,
-            manufacturer_data=adv.manufacturer_data,
-        )
-
         try:
-            device, _ = self.seen_devices[address]
+            device, _ = self.seen_devices[key]
 
             device.name = name
-            device._rssi = adv.rssi
-            device._metadata = metadata
         except KeyError:
-            device = BLEDevice(
-                address,
-                name,
-                details,
-                adv.rssi,
-                **metadata,
-            )
+            device = BLEDevice(address, name, details)
 
-        self.seen_devices[address] = (device, adv)
+        self.seen_devices[key] = (device, adv)
 
         return device
 
@@ -297,39 +277,48 @@ class BaseBleakScanner(abc.ABC):
         """Stop scanning for devices"""
         raise NotImplementedError()
 
-    @abc.abstractmethod
-    def set_scanning_filter(self, **kwargs) -> None:
-        """Set scanning filter for the BleakScanner.
 
-        Args:
-            **kwargs: The filter details. This will differ a lot between backend implementations.
-
-        """
-        raise NotImplementedError()
-
-
-def get_platform_scanner_backend_type() -> Type[BaseBleakScanner]:
+def get_platform_scanner_backend_type() -> tuple[type[BaseBleakScanner], BleakBackend]:
     """
     Gets the platform-specific :class:`BaseBleakScanner` type.
     """
-    if os.environ.get("P4A_BOOTSTRAP") is not None:
-        from bleak.backends.p4android.scanner import BleakScannerP4Android
+    backend = get_default_backend()
+    match backend:
+        case BleakBackend.P4ANDROID:
+            from bleak.backends.p4android.scanner import (
+                BleakScannerP4Android,  # type: ignore
+            )
 
-        return BleakScannerP4Android
+            return (BleakScannerP4Android, backend)  # type: ignore
 
-    if platform.system() == "Linux":
-        from bleak.backends.bluezdbus.scanner import BleakScannerBlueZDBus
+        case BleakBackend.BLUEZ_DBUS:
+            from bleak.backends.bluezdbus.scanner import (
+                BleakScannerBlueZDBus,  # type: ignore
+            )
 
-        return BleakScannerBlueZDBus
+            return (BleakScannerBlueZDBus, backend)  # type: ignore
 
-    if platform.system() == "Darwin":
-        from bleak.backends.corebluetooth.scanner import BleakScannerCoreBluetooth
+        case BleakBackend.PYTHONISTA_CB:
+            try:
+                from bleak_pythonista import BleakScannerPythonistaCB  # type: ignore
 
-        return BleakScannerCoreBluetooth
+                return (BleakScannerPythonistaCB, backend)  # type: ignore
+            except ImportError as e:
+                raise ImportError(
+                    "Ensure you have `bleak-pythonista` package installed."
+                ) from e
 
-    if platform.system() == "Windows":
-        from bleak.backends.winrt.scanner import BleakScannerWinRT
+        case BleakBackend.CORE_BLUETOOTH:
+            from bleak.backends.corebluetooth.scanner import (
+                BleakScannerCoreBluetooth,  # type: ignore
+            )
 
-        return BleakScannerWinRT
+            return (BleakScannerCoreBluetooth, backend)  # type: ignore
 
-    raise BleakError(f"Unsupported platform: {platform.system()}")
+        case BleakBackend.WIN_RT:
+            from bleak.backends.winrt.scanner import BleakScannerWinRT  # type: ignore
+
+            return (BleakScannerWinRT, backend)  # type: ignore
+
+        case _:
+            raise BleakError(f"Unsupported backend: {backend}")

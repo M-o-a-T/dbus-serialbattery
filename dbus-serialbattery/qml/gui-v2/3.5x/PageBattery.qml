@@ -116,25 +116,10 @@ Page {
 			ListQuantityGroup {
 				text: CommonWords.battery
 				textModel: [
-					{ value: batteryVoltage.value, unit: VenusOS.Units_Volt_DC },
-					{ value: batteryCurrent.value, unit: VenusOS.Units_Amp },
-					{ value: batteryPower.value, unit: VenusOS.Units_Watt }
+					{ value: root.battery.voltage, unit: VenusOS.Units_Volt_DC },
+					{ value: root.battery.current, unit: VenusOS.Units_Amp },
+					{ value: root.battery.power, unit: VenusOS.Units_Watt }
 				]
-
-				VeQuickItem {
-					id: batteryVoltage
-					uid: root.battery.serviceUid + "/Dc/0/Voltage"
-				}
-
-				VeQuickItem {
-					id: batteryCurrent
-					uid: root.battery.serviceUid + "/Dc/0/Current"
-				}
-
-				VeQuickItem {
-					id: batteryPower
-					uid: root.battery.serviceUid + "/Dc/0/Power"
-				}
 			}
 
 			ListQuantityItem {
@@ -147,19 +132,14 @@ Page {
 
 			ListQuantityItem {
 				readonly property VeQuickItem _n2kDeviceInstance: VeQuickItem {
-					uid: root.battery.serviceUid + "/N2kDeviceInstance"
+					uid: battery.serviceUid + "/N2kDeviceInstance"
 				}
 
 				//% "System voltage"
 				text: qsTrId("devicelist_battery_system_voltage")
 				dataItem.uid: BackendConnection.serviceUidFromName("com.victronenergy.battery.lynxparallel" + _n2kDeviceInstance.value, _n2kDeviceInstance.value) + "/Dc/0/Voltage"
-				allowed: defaultAllowed && !root.isParallelBms && batteryState.value === VenusOS.Battery_State_Pending
+				allowed: defaultAllowed && !root.isParallelBms && root.battery.state === VenusOS.Battery_State_Pending
 				unit: VenusOS.Units_Volt_DC
-
-				VeQuickItem {
-					id: batteryState
-					uid: root.battery.serviceUid + "/State"
-				}
 			}
 
 			ListTextItem {
@@ -172,7 +152,7 @@ Page {
 
 			ListQuantityItem {
 				text: CommonWords.state_of_charge
-				dataItem.uid: root.battery.serviceUid + "/Soc"
+				value: root.battery.stateOfCharge
 				unit: VenusOS.Units_Percentage
 			}
 
@@ -218,7 +198,7 @@ Page {
 				//% "Top section voltage"
 				text: qsTrId("battery_top_section_voltage")
 				allowed: midVoltage.isValid
-				value: midVoltage.isValid && batteryVoltage.isValid ? batteryVoltage.value - midVoltage.value : NaN
+				value: midVoltage.isValid && !isNaN(root.battery.voltage) ? root.battery.voltage - midVoltage.value : NaN
 				unit: VenusOS.Units_Volt_DC
 			}
 
@@ -259,7 +239,7 @@ Page {
 				text: qsTrId("battery_time_to_go")
 				dataItem.uid: root.battery.serviceUid + "/TimeToGo"
 				allowed: defaultAllowed && dataItem.seen
-				secondaryText: Utils.secondsToString(dataItem.value)
+				secondaryText: Utils.secondsToString(root.battery.timeToGo)
 			}
 
 			ListRelayState {
