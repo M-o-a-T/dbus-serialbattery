@@ -10,6 +10,7 @@ from typing import Union
 
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
+import click
 
 from battery import Battery
 from dbushelper import DbusHelper
@@ -27,6 +28,7 @@ from utils import (
     get_venus_os_device_type,
     logger,
     POLL_INTERVAL,
+    read_config,
     validate_config_values,
 )
 
@@ -103,8 +105,13 @@ count_for_loops = 5
 delayed_loop_count = 0
 
 
-def main():
+@click.command
+@click.option("-f","--config", type=click.Path(), help="Additional config file")
+@click.argument("args", count=-1)
+def main(config, args):
     global expected_bms_types, supported_bms_types
+
+    read_config(config)
 
     def exit_driver(sig, frame, code: int = 0) -> None:
         """
@@ -115,7 +122,7 @@ def main():
         """
         logger.info("Exit signal received, exiting gracefully...")
 
-        port = get_port()
+        port = get_port(args)
 
         # Stop the main loop, if set
         if "mainloop" in globals() and mainloop is not None:
@@ -264,14 +271,14 @@ def main():
 
         return None
 
-    def get_port() -> str:
+    def get_port(args) -> str:
         """
         Retrieves the port to connect to from the command line arguments.
 
         :return: The port to connect to.
         """
-        if len(sys.argv) > 1:
-            port = sys.argv[1]
+        if len(args) > 0:
+            port = args[0]
             if port not in EXCLUDED_DEVICES:
                 return port
             else:
@@ -324,7 +331,7 @@ def main():
     # show the version of the driver
     logger.info("dbus-serialbattery v" + str(DRIVER_VERSION))
 
-    port = get_port()
+    port = get_port(args)
     battery = {}
 
     # BLUETOOTH
@@ -334,11 +341,11 @@ def main():
         This prevents issues when using the driver exclusively with a serial connection.
         """
 
-        if len(sys.argv) <= 2:
+        if len(args) <= 1:
             logger.error(">>> Bluetooth address is missing in the command line arguments")
             exit_driver(None, None, 1)
         else:
-            ble_address = sys.argv[2]
+            ble_address = args[1]
 
             if port == "Jkbms_Ble":
                 # noqa: F401 --> ignore flake "imported but unused" error
@@ -379,13 +386,13 @@ def main():
         This prevents issues when using the driver exclusively with a serial connection.
         """
 
-        if len(sys.argv) <= 2:
+        if len(args) <= 1:
             logger.error(">>> Bluetooth address is missing in the command line arguments")
             exit_driver(None, None, 1)
         else:
             from bms.generic_aiobmsble import Generic_AioBmsBle  # noqa: F401
 
-            ble_address = sys.argv[2]
+            ble_address = args[1]
 
             # do not remove ble_ prefix, since the dbus service cannot be only numbers
             testbms = Generic_AioBmsBle(port.replace("aiobmsble_", ""), None, ble_address)
@@ -477,14 +484,14 @@ def main():
         This prevents issues when using the driver exclusively with a serial connection.
         """
 
-        if len(sys.argv) <= 2:
+        if len(args) <= 1:
             logger.error(">>> MQTT topic is missing in the command line arguments")
             exit_driver(None, None, 1)
         else:
             from bms.generic_mqtt import Generic_Mqtt
 
             # TODO: Currently only one topic is supported
-            mqtt_topic = sys.argv[2]
+            mqtt_topic = args[1]
 
             # Split mqtt topics by comma to allow multiple batteries
             # TODO: implement multiple battery support

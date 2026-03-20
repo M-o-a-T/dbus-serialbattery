@@ -38,26 +38,34 @@ logger = logging.getLogger("SerialBattery")
 PATH_CONFIG_DEFAULT: str = "config.default.ini"
 PATH_CONFIG_USER: str = "config.ini"
 
-config = configparser.ConfigParser()
-path = Path(__file__).parents[0]
-default_config_file_path = str(path.joinpath(PATH_CONFIG_DEFAULT).absolute())
-custom_config_file_path = str(path.joinpath(PATH_CONFIG_USER).absolute())
-try:
-    config.read([default_config_file_path, custom_config_file_path])
+config = None
 
-    # Ensure the [DEFAULT] section exists and is uppercase
-    if "DEFAULT" not in config:
-        logger.error(f'The custom config file "{custom_config_file_path}" is missing the [DEFAULT] section.')
-        logger.error("Make sure the first line of the file is exactly (case-sensitive): [DEFAULT]")
+def read_config(cfg_path: str | None = None):
+    global config
+    config = configparser.ConfigParser()
+
+    path = Path(__file__).parents[0]
+    default_config_file_path = str(path.joinpath(PATH_CONFIG_DEFAULT).absolute())
+    custom_config_file_path = str(path.joinpath(PATH_CONFIG_USER).absolute())
+    config_files = [default_config_file_path, custom_config_file_path]
+    if cfg_path is not None:
+        config_files.append(cfg_path)
+    try:
+        config.read(config_files)
+
+        # Ensure the [DEFAULT] section exists and is uppercase
+        if "DEFAULT" not in config:
+            logger.error(f'The custom config file "{custom_config_file_path}" is missing the [DEFAULT] section.')
+            logger.error("Make sure the first line of the file is exactly (case-sensitive): [DEFAULT]")
+            sleep(60)
+            sys.exit(1)
+
+    except configparser.MissingSectionHeaderError as error_message:
+        logger.error(f'Error reading "{custom_config_file_path}"')
+        logger.error("Make sure the first line is exactly: [DEFAULT]")
+        logger.error(f"{error_message}\n")
         sleep(60)
         sys.exit(1)
-
-except configparser.MissingSectionHeaderError as error_message:
-    logger.error(f'Error reading "{custom_config_file_path}"')
-    logger.error("Make sure the first line is exactly: [DEFAULT]")
-    logger.error(f"{error_message}\n")
-    sleep(60)
-    sys.exit(1)
 
 # Map config logging levels to logging module levels
 LOGGING_LEVELS = {
