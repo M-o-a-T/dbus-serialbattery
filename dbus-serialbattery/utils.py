@@ -40,6 +40,10 @@ PATH_CONFIG_USER: str = "config.ini"
 
 config = None
 
+# List to store config errors
+# This is needed else the errors are not instantly visible
+errors_in_config = []
+
 def read_config(cfg_path: str | None = None):
     global config
     config = configparser.ConfigParser()
@@ -67,45 +71,35 @@ def read_config(cfg_path: str | None = None):
         sleep(60)
         sys.exit(1)
 
-# Map config logging levels to logging module levels
-LOGGING_LEVELS = {
-    "ERROR": logging.ERROR,
-    "WARNING": logging.WARNING,
-    "INFO": logging.INFO,
-    "DEBUG": logging.DEBUG,
-}
+    # Map config logging levels to logging module levels
+    LOGGING_LEVELS = {
+        "ERROR": logging.ERROR,
+        "WARNING": logging.WARNING,
+        "INFO": logging.INFO,
+        "DEBUG": logging.DEBUG,
+    }
 
-# Set logging level from config file
-logger.setLevel(LOGGING_LEVELS.get(config["DEFAULT"].get("LOGGING").upper()))
+    # Set logging level from config file
+    logger.setLevel(LOGGING_LEVELS.get(config["DEFAULT"].get("LOGGING").upper()))
 
-# List to store config errors
-# This is needed else the errors are not instantly visible
-errors_in_config = []
 
-# Check if there are any options in the custom config file that are not in the default config file
-default_config = configparser.ConfigParser()
-custom_config = configparser.ConfigParser()
-# Ensure that option names are treated as case-sensitive
-default_config.optionxform = str
-custom_config.optionxform = str
-# Read the default and custom config files
-default_config.read(default_config_file_path)
-custom_config.read(custom_config_file_path)
+    # Check if there are any options in the custom config file that are not in the default config file
+    default_config = configparser.ConfigParser()
+    custom_config = configparser.ConfigParser()
+    # Ensure that option names are treated as case-sensitive
+    default_config.optionxform = str
+    custom_config.optionxform = str
+    # Read the default and custom config files
+    default_config.read(default_config_file_path)
+    custom_config.read(custom_config_file_path)
 
-for section in custom_config.sections() + ["DEFAULT"]:
-    if section not in default_config.sections() + ["DEFAULT"]:
-        errors_in_config.append(f'Section "{section}" in config.ini is not valid.')
-    else:
-        for option in custom_config[section]:
-            if option not in default_config[section]:
-                errors_in_config.append(f'Option "{option}" in config.ini is not valid.')
-
-# Free up memory
-del default_config, custom_config, section
-
-# Check if option variable was set and if yes, free it
-if "option" in locals():
-    del option
+    for section in custom_config.sections() + ["DEFAULT"]:
+        if section not in default_config.sections() + ["DEFAULT"]:
+            errors_in_config.append(f'Section "{section}" in config.ini is not valid.')
+        else:
+            for option in custom_config[section]:
+                if option not in default_config[section]:
+                    errors_in_config.append(f'Option "{option}" in config.ini is not valid.')
 
 
 # --------- Helper Functions ---------
