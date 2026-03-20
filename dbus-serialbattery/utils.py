@@ -36,12 +36,12 @@ logging.basicConfig()
 logger = logging.getLogger("SerialBattery")
 
 PATH_CONFIG_DEFAULT: str = "config.default.ini"
-PATH_CONFIG_USER: str = "config.ini"
+PATH_CONFIG_USER: str = "/data/conf/dbus-serialbattery.ini"
 
 config = configparser.ConfigParser()
 path = Path(__file__).parents[0]
 default_config_file_path = str(path.joinpath(PATH_CONFIG_DEFAULT).absolute())
-custom_config_file_path = str(path.joinpath(PATH_CONFIG_USER).absolute())
+custom_config_file_path = PATH_CONFIG_USER
 try:
     config.read([default_config_file_path, custom_config_file_path])
 
