@@ -313,7 +313,7 @@ class Jkbms_pb(Battery):
         discharge = unpack_from("<B", status_data, 199)[0]
         heat = unpack_from("<B", status_data, 215)[0]
 
-        logger.info("bal: " + str(bal) + " charge: " + str(charge) + " discharge: " + str(discharge) + " heat: " + str(heat))
+        # logger.info("bal: " + str(bal) + " charge: " + str(charge) + " discharge: " + str(discharge) + " heat: " + str(heat))
 
         self.charge_fet = 1 if charge != 0 else 0
         self.discharge_fet = 1 if discharge != 0 else 0
