@@ -448,8 +448,7 @@ class LltJbd_Up16s(Battery):
         if pack_params_2:
             self.soc = self.from_raw_high_resolution_percentage(pack_params_2.high_res_soc)
             self.append_once(self.history.exclude_values_to_calculate, "total_ah_drawn")
-            # total_ah_drawn has to be negative by convention in battery.py
-            self.history.total_ah_drawn = -self.from_raw_total_charge_discharge_to_ah(pack_params_2.total_discharge)
+            self.history.total_ah_drawn = self.from_raw_total_charge_discharge_to_ah(pack_params_2.total_discharge)
         elif shared_data.get_command_availability(self.address_int, PackParams2).status == CommandAvailability.Status.AVAILABLE:
             # If PackParams2 command is available but timed out this time, wait for it to recover. Fall back to using the potentially
             # non-high-res SOC from PackStatus only if it differs more than 1% from the last fetched value. This prevents SOC from changing

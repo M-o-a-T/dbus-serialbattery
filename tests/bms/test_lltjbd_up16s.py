@@ -729,7 +729,7 @@ class TestRefreshData:
         on which master is able to forward this data from slaves."""
         TestRefreshData.verify_charge_cycles_and_total_ah_drawn_are_added_once_to_calculation_exclusions_list(battery)
         TestRefreshData.verify_soc_is_high_resolution(battery)
-        assert battery.history.total_ah_drawn == pytest.approx(-791.4)
+        assert battery.history.total_ah_drawn == pytest.approx(791.4)
         # Verifies that the unique identifier is in the non-fallback format (since the proper unique serial number could be retrieved)
         assert battery.unique_identifier() == "UP16S015000000000000000000"
 

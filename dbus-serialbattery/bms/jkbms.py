@@ -215,7 +215,7 @@ class Jkbms(Battery):
             (unpack_from(">24s", self.get_data(status_data, b"\xba", offset, 24))[0].decode().replace("\x00", " ").replace("Input Userda", "").strip()),
         )
 
-        # show wich cells are balancing
+        # show which cells are balancing
         if self.get_min_cell() is not None and self.get_max_cell() is not None:
             for c in range(self.cell_count):
                 if self.balancing and (self.get_min_cell() == c or self.get_max_cell() == c):

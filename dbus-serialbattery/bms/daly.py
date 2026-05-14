@@ -335,12 +335,22 @@ class Daly(Battery):
         else:
             low_discharge_temperature = 0
 
-        if al_crnt_soc & 2:
+        # When INVERT_CURRENT_MEASUREMENT == -1 the BMS's charge/discharge
+        # polarity is swapped relative to the driver's convention, so the
+        # alarm bits must be mapped accordingly.
+        if INVERT_CURRENT_MEASUREMENT == -1:
+            charge_alarm_bit, charge_prealarm_bit = 8, 4
+            discharge_alarm_bit, discharge_prealarm_bit = 2, 1
+        else:
+            charge_alarm_bit, charge_prealarm_bit = 2, 1
+            discharge_alarm_bit, discharge_prealarm_bit = 8, 4
+
+        if al_crnt_soc & charge_alarm_bit:
             # High charge current - Alarm
-            high_charge_current = 2
-        elif al_crnt_soc & 1:
+            self.protection.high_charge_current = 2
+        elif al_crnt_soc & charge_prealarm_bit:
             # High charge current - Pre-alarm
-            high_charge_current = 1
+            self.protection.high_charge_current = 1
         else:
             high_charge_current = 0
 
@@ -377,6 +387,15 @@ class Daly(Battery):
             self.protection.high_charge_current = high_discharge_current
             self.protection.high_discharge_current = high_charge_current
 
+        if al_crnt_soc & discharge_alarm_bit:
+            # High discharge current - Alarm
+            self.protection.high_discharge_current = 2
+        elif al_crnt_soc & discharge_prealarm_bit:
+            # High discharge current - Pre-alarm
+            self.protection.high_discharge_current = 1
+        else:
+            self.protection.high_discharge_current = 0
+
         if not SOC_CALCULATION:
             if al_crnt_soc & 128:
                 # Low SoC - Alarm
@@ -405,7 +424,7 @@ class Daly(Battery):
 
         if cells_volts_data is False and self.cells_volts_data_lastreadbad is True:
             # if this read out and the last one were bad, report error.
-            # (we don't report single errors, as current daly firmware sends corrupted cells volts data occassionally)
+            # (we don't report single errors, as current daly firmware sends corrupted cells volts data occasionally)
             logger.debug("No or invalid data has been received repeatedly in read_cells_volts()")
             return False
         elif cells_volts_data is False:
@@ -517,7 +536,7 @@ class Daly(Battery):
             logger.debug("No data received in read_capacity()")
             return False
 
-        (capacity, cell_volt) = unpack_from(">LL", capa_data)
+        capacity, cell_volt = unpack_from(">LL", capa_data)
 
         if capacity is not None and capacity > 0:
             self.capacity = capacity / 1000
@@ -533,7 +552,7 @@ class Daly(Battery):
             logger.debug("No data received in read_production_date()")
             return False
 
-        (_, _, year, month, day) = unpack_from(">BBBBB", production)
+        _, _, year, month, day = unpack_from(">BBBBB", production)
         self.production = f"{year + 2000}{month:02d}{day:02d}"
         return True
 
@@ -733,7 +752,7 @@ class Daly(Battery):
 
     def read_sentence(self, ser, expected_reply, timeout=0.5):
         """read one 13 byte sentence from daly smart bms.
-        return false if less than 13 bytes received in timeout secs, or frame errors occured
+        return false if less than 13 bytes received in timeout secs, or frame errors occurred
         return received datasection as bytearray else
         """
         time_start = time()

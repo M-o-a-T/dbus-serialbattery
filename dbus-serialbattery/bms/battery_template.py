@@ -229,6 +229,12 @@ class BatteryTemplate(Battery):
         # heater temperature stop in °C (float)
         self.heater_temperature_stop = VALUE_FROM_BMS
 
+        # get DVCC values from BMS if the user wants to use them and they are available
+        if utils.USE_BMS_DVCC_VALUES is True:
+            self.max_battery_voltage = max_battery_voltage_bms
+            self.min_battery_voltage = max_battery_voltage_bms
+            self.max_battery_charge_current = VALUE_FROM_BMS
+            self.max_battery_discharge_current = VALUE_FROM_BMS
 
         # PROTECTION values
         # 2 = alarm, 1 = warningm 0 = ok
