@@ -1211,13 +1211,10 @@ class DbusHelper:
                     3,
                 )
             except Exception:
+                logger.exception("send cell cell voltages")
+
                 # set error code, to show in the GUI that something is wrong
                 self.battery.manage_error_code(8)
-
-                exception_type, exception_object, exception_traceback = sys.exc_info()
-                file = exception_traceback.tb_frame.f_code.co_filename
-                line = exception_traceback.tb_lineno
-                logger.error("Non blocking exception occurred: " + f"{repr(exception_object)} of type {exception_type} in {file} line #{line}")
 
         # Calculate average current for the last 300 cycles
         self.battery.previous_current_avg = self.battery.current_avg
